@@ -55,13 +55,13 @@ def test_validar_dados_p1_valido():
 
 def test_validar_dados_p1_titulo_curto():
     dados = {"titulo": "Curto", "descricao": "desc", "contexto_fiscal": "ctx"}
-    with pytest.raises(ProtocolError, match="título deve ter no mínimo"):
+    with pytest.raises(ProtocolError, match="nome do caso deve ter pelo menos 10"):
         _validar_dados_passo(1, dados)
 
 
 def test_validar_dados_p1_campo_ausente():
     dados = {"titulo": "Titulo longo suficiente", "descricao": "desc"}
-    with pytest.raises(ProtocolError, match="campos obrigatórios ausentes"):
+    with pytest.raises(ProtocolError, match="Preencha todos os campos obrigatórios"):
         _validar_dados_passo(1, dados)
 
 
@@ -78,7 +78,7 @@ def test_validar_dados_p2_valido():
 
 def test_validar_dados_p3_sem_risco():
     dados = {"riscos": [], "dados_qualidade": "ok"}
-    with pytest.raises(ProtocolError, match="pelo menos 1 risco"):
+    with pytest.raises(ProtocolError, match="Identifique pelo menos 1 risco"):
         _validar_dados_passo(3, dados)
 
 

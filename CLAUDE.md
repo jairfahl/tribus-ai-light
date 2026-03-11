@@ -23,14 +23,16 @@
 ## Stack Técnica
 
 ```
-Python        3.12.3
+Python        3.12+
 PostgreSQL    16 via Docker Compose
 pgvector      extensão obrigatória (dim 1024, índice HNSW)
-Embeddings    voyage-3 via Anthropic API
+Embeddings    voyage-3 via VoyageAI API
 LLM           claude-haiku-4-5-20251001 (dev) | claude-sonnet-4-6 (prod)
-UI            Streamlit (Sprint 3)
-API           FastAPI (Sprint 2)
+UI            Streamlit (5 abas)
+API           FastAPI (19+ endpoints)
 Auth          nenhuma (single-user local)
+RAG           híbrido: 0.7 cosine + 0.3 BM25, top_k=5, rerank_top_n=20
+Anti-aluc.    4 mecanismos (M1-M4) em toda resposta
 ```
 
 ## Regras Invioláveis
@@ -46,10 +48,10 @@ Auth          nenhuma (single-user local)
 - Logs estruturados: logging Python, nível INFO
 ```
 
-## Schema do Banco (9 tabelas)
+## Schema do Banco (10 tabelas)
 
 ```sql
-normas            -- documentos fonte (EC, LC)
+normas            -- documentos fonte (EC, LC) + file_hash para dedup
 chunks            -- trechos das normas com metadados jurídicos
 embeddings        -- vetores voyage-3 (1024 dim) + índice HNSW
 consultas         -- log de buscas (Sprint 2+)
@@ -69,7 +71,8 @@ carimbo_alerts    -- alertas de terceirização cognitiva (Sprint 3)
 | 2 | Motor Cognitivo + FastAPI + Streamlit + Upload | ✅ Concluída |
 | 3 | Protocolo P1→P9 + Detector de Carimbo + Testes adversariais | ✅ Concluída |
 | 4 | Outputs Acionáveis — 5 classes + stakeholders + materialidade | ✅ Concluída |
-| 5 | Observability de IA — métricas + drift + regression testing | ← ATUAL |
+| 5 | Observability de IA — métricas + drift + regression testing | ✅ Concluída |
+| Pós-Sprint | UX corporativa + ingest assíncrono + delete norma + melhorias RAG | ✅ Concluída |
 
 ---
 
@@ -80,6 +83,7 @@ carimbo_alerts    -- alertas de terceirização cognitiva (Sprint 3)
 - [x] Sprint 3 ✅ (49/49 testes, 6/6 adversariais)
 - [x] Sprint 4 ✅ (107/107 testes, 5 classes + stakeholders + materialidade, suite unitária: 45s)
 - [x] Sprint 5 ✅ (137/137 testes, MetricsCollector + DriftDetector 2σ + RegressionRunner + 5 endpoints + Aba 5 UI)
+- [x] Pós-Sprint ✅ (linguagem corporativa, ingest assíncrono, delete norma, dedup RAG, top_k=5, rerank_top_n=20, P6 auto-populate, validação de documentos, BL-02 sugestão)
 
 ---
 

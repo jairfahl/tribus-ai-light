@@ -192,7 +192,20 @@ def retrieve(
         ))
 
     resultados.sort(key=lambda r: r.score_final, reverse=True)
-    top = resultados[:top_k]
+
+    # Deduplicar por artigo — mesmo artigo de normas diferentes (ex: LC227 ingestada 2x)
+    # mantém apenas o de maior score_final
+    vistos: set[str] = set()
+    dedup: list[ChunkResultado] = []
+    for r in resultados:
+        chave = (r.artigo or "").strip().lower()
+        if chave and chave in vistos:
+            continue
+        if chave:
+            vistos.add(chave)
+        dedup.append(r)
+
+    top = dedup[:top_k]
 
     logger.info("Retrieve concluído: %d resultados (de %d candidatos)", len(top), len(rows))
     for r in top:

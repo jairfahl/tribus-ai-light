@@ -1,10 +1,12 @@
 """
-api/main.py — FastAPI: 17 endpoints do motor cognitivo TaxMind Light.
+api/main.py — FastAPI: 18 endpoints do motor cognitivo TaxMind Light.
 
 POST /v1/analyze                                  — análise tributária completa
 GET  /v1/chunks                                   — busca RAG direta
 GET  /v1/health                                   — status do sistema
-POST /v1/ingest/upload                            — ingestão de PDF adicional
+POST /v1/ingest/check-duplicate                   — verificar duplicidade antes de ingestão
+POST /v1/ingest/upload                            — ingestão assíncrona de PDF (retorna job_id)
+GET  /v1/ingest/jobs/{job_id}                     — polling de status do job de ingestão
 POST /v1/cases                                    — criar caso protocolo
 GET  /v1/cases/{case_id}                          — estado do caso
 POST /v1/cases/{case_id}/steps/{passo}            — submeter passo
@@ -20,16 +22,19 @@ POST /v1/observability/baseline                   — registrar baseline
 POST /v1/observability/regression                 — executar regression testing
 """
 
+import hashlib
 import logging
 import os
 import re
 import tempfile
+import uuid
+from enum import Enum
 from pathlib import Path
 from typing import Optional
 
 import psycopg2
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -48,6 +53,14 @@ load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
+
+class JobStatus(str, Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    DONE = "done"
+    ERROR = "error"
+
+_ingest_jobs: dict[str, dict] = {}
 
 app = FastAPI(
     title="TaxMind Light API",
@@ -69,7 +82,7 @@ class AnalyzeRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Consulta tributária")
     norma_filter: Optional[list[str]] = Field(None, description="Filtrar por normas: EC132_2023, LC214_2025, LC227_2026")
     excluir_tipos: Optional[list[str]] = Field(["Outro"], description="Tipos de norma a excluir do RAG (padrão: [\"Outro\"])")
-    top_k: int = Field(3, ge=1, le=10)
+    top_k: int = Field(5, ge=1, le=10)
     model: str = Field(MODEL_DEV)
 
 
@@ -154,7 +167,7 @@ async def analyze(req: AnalyzeRequest):
 @app.get("/v1/chunks")
 async def get_chunks(
     q: str = Query(..., description="Texto da busca"),
-    top_k: int = Query(3, ge=1, le=10),
+    top_k: int = Query(5, ge=1, le=10),
     norma: Optional[str] = Query(None, description="Código da norma para filtrar"),
 ):
     """Busca RAG direta sem análise cognitiva."""
@@ -206,36 +219,23 @@ async def health():
     }
 
 
-@app.post("/v1/ingest/upload")
-async def ingest_upload(
-    file: UploadFile = File(..., description="Arquivo PDF a ingerir"),
-    nome: str = Form(..., description="Nome do documento (ex: IN RFB 2184/2024)"),
-    tipo: str = Form(..., description="Tipo: IN | Resolucao | Parecer | Manual | Outro"),
-):
-    """
-    Ingestão de PDF adicional (INs, Resoluções, Pareceres, Manuais).
-    O PDF é processado em /tmp e não é persistido no disco após ingestão.
-    """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
-
-    logger.info("POST /v1/ingest/upload nome=%s tipo=%s", nome, tipo)
-
-    # Gerar código único a partir do nome
-    codigo = re.sub(r"[^A-Za-z0-9]", "_", nome)[:30].strip("_")
-
-    conteudo = await file.read()
-
+def _processar_ingest_background(job_id: str, conteudo: bytes, filename: str,
+                                  nome: str, tipo: str, codigo: str):
+    """Processa ingestão de PDF em background (chunking + embeddings)."""
     try:
+        _ingest_jobs[job_id]["status"] = JobStatus.PROCESSING
+        file_hash = hashlib.md5(conteudo).hexdigest()
+
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
             tmp.write(conteudo)
             tmp.flush()
             tmp_path = Path(tmp.name)
 
-            # Extrair texto
             texto = extrair_texto_pdf(tmp_path)
             if not texto.strip():
-                raise HTTPException(status_code=400, detail="PDF sem texto extraível (pode ser imagem)")
+                _ingest_jobs[job_id]["status"] = JobStatus.ERROR
+                _ingest_jobs[job_id]["message"] = "PDF sem texto extraível (pode ser imagem)"
+                return
 
             doc = DocumentoNorma(
                 codigo=codigo,
@@ -243,24 +243,24 @@ async def ingest_upload(
                 tipo=tipo,
                 numero="0",
                 ano=2024,
-                arquivo=file.filename,
+                arquivo=filename,
                 texto=texto,
             )
 
-            # Persistir norma + chunks + embeddings
             url = os.getenv("DATABASE_URL")
             conn = psycopg2.connect(url)
             cur = conn.cursor()
 
             cur.execute(
                 """
-                INSERT INTO normas (codigo, nome, tipo, numero, ano, arquivo)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO normas (codigo, nome, tipo, numero, ano, arquivo, file_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (codigo) DO UPDATE SET
-                    nome = EXCLUDED.nome, arquivo = EXCLUDED.arquivo, vigente = TRUE
+                    nome = EXCLUDED.nome, arquivo = EXCLUDED.arquivo,
+                    file_hash = EXCLUDED.file_hash, vigente = TRUE
                 RETURNING id
                 """,
-                (doc.codigo, doc.nome, doc.tipo, doc.numero, doc.ano, doc.arquivo),
+                (doc.codigo, doc.nome, doc.tipo, doc.numero, doc.ano, doc.arquivo, file_hash),
             )
             norma_id = cur.fetchone()[0]
             conn.commit()
@@ -294,20 +294,192 @@ async def ingest_upload(
             cur.close()
             conn.close()
 
+        logger.info("Upload ingerido: %s | chunks=%d | embeddings=%d", nome, len(chunks), n_emb)
+        _ingest_jobs[job_id]["status"] = JobStatus.DONE
+        _ingest_jobs[job_id]["message"] = "Documento incluído com sucesso"
+        _ingest_jobs[job_id]["result"] = {
+            "norma_id": norma_id,
+            "nome": nome,
+            "codigo": codigo,
+            "chunks": len(chunks),
+            "embeddings": n_emb,
+        }
+    except Exception as e:
+        logger.error("Erro em ingest background job=%s: %s", job_id, e, exc_info=True)
+        _ingest_jobs[job_id]["status"] = JobStatus.ERROR
+        _ingest_jobs[job_id]["message"] = str(e)
+
+
+@app.post("/v1/ingest/check-duplicate")
+async def check_duplicate(file: UploadFile = File(...)):
+    """Verifica se arquivo já foi ingestado por nome ou hash MD5."""
+    conteudo = await file.read()
+    file_hash = hashlib.md5(conteudo).hexdigest()
+    filename = file.filename or ""
+
+    url = os.getenv("DATABASE_URL")
+    conn = psycopg2.connect(url)
+    cur = conn.cursor()
+
+    cur.execute("SELECT id, nome, arquivo FROM normas WHERE file_hash = %s", (file_hash,))
+    row_hash = cur.fetchone()
+
+    cur.execute("SELECT id, nome, arquivo FROM normas WHERE arquivo ILIKE %s", (f"%{filename}%",))
+    row_nome = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if row_hash:
+        return {
+            "duplicado": True,
+            "tipo": "conteudo",
+            "mensagem": f"Este documento já está na base como '{row_hash[1]}'.",
+            "norma_id": row_hash[0],
+        }
+    if row_nome:
+        return {
+            "duplicado": True,
+            "tipo": "nome",
+            "mensagem": f"Um arquivo com este nome já foi incluído como '{row_nome[1]}'.",
+            "norma_id": row_nome[0],
+        }
+
+    return {"duplicado": False, "mensagem": ""}
+
+
+@app.post("/v1/ingest/upload")
+async def ingest_upload(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(..., description="Arquivo PDF a ingerir"),
+    nome: str = Form(..., description="Nome do documento (ex: IN RFB 2184/2024)"),
+    tipo: str = Form(..., description="Tipo: IN | Resolucao | Parecer | Manual | Outro"),
+):
+    """
+    Ingestão assíncrona de PDF. Retorna job_id para polling via GET /v1/ingest/jobs/{job_id}.
+    """
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
+
+    logger.info("POST /v1/ingest/upload nome=%s tipo=%s", nome, tipo)
+
+    codigo = re.sub(r"[^A-Za-z0-9]", "_", nome)[:30].strip("_")
+    conteudo = await file.read()
+
+    job_id = str(uuid.uuid4())
+    _ingest_jobs[job_id] = {"status": JobStatus.PENDING, "message": "", "result": None}
+
+    background_tasks.add_task(
+        _processar_ingest_background, job_id, conteudo, file.filename, nome, tipo, codigo
+    )
+
+    return {"job_id": job_id, "status": JobStatus.PENDING}
+
+
+@app.get("/v1/ingest/jobs/{job_id}")
+def get_job_status(job_id: str):
+    """Polling de status de um job de ingestão."""
+    job = _ingest_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job não encontrado")
+    resp = {"job_id": job_id, "status": job["status"], "message": job["message"]}
+    if job["result"]:
+        resp["result"] = job["result"]
+    return resp
+
+
+# --- Gerenciamento de normas ---
+
+@app.get("/v1/ingest/normas")
+def listar_normas():
+    """Lista todas as normas na base de conhecimento."""
+    url = os.getenv("DATABASE_URL")
+    conn = psycopg2.connect(url)
+    cur = conn.cursor()
+    try:
+        cur.execute("""
+            SELECT n.id, n.codigo, n.nome, n.tipo, n.ano, n.vigente, n.created_at,
+                   COUNT(c.id) AS total_chunks
+            FROM normas n
+            LEFT JOIN chunks c ON c.norma_id = n.id
+            GROUP BY n.id
+            ORDER BY n.created_at DESC
+        """)
+        rows = cur.fetchall()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar normas: {e}")
+    finally:
+        cur.close()
+
+    return [
+        {
+            "id": r[0],
+            "codigo": r[1],
+            "nome": r[2],
+            "tipo": r[3],
+            "ano": r[4],
+            "vigente": r[5],
+            "created_at": r[6].isoformat() if r[6] else None,
+            "total_chunks": r[7],
+        }
+        for r in rows
+    ]
+
+
+@app.delete("/v1/ingest/normas/{norma_id}")
+def deletar_norma(norma_id: int):
+    """
+    Remove uma norma e todos os seus chunks/embeddings da base.
+    Cascata: embeddings → chunks → norma.
+    """
+    url = os.getenv("DATABASE_URL")
+    conn = psycopg2.connect(url)
+    cur = conn.cursor()
+    try:
+        # Verificar se a norma existe
+        cur.execute("SELECT id, nome, codigo FROM normas WHERE id = %s", (norma_id,))
+        norma = cur.fetchone()
+        if not norma:
+            raise HTTPException(status_code=404, detail="Norma não encontrada")
+
+        nome_norma = norma[1]
+        codigo_norma = norma[2]
+
+        # 1. Deletar embeddings (via CASCADE nos chunks, mas fazemos explícito para log)
+        cur.execute("""
+            DELETE FROM embeddings
+            WHERE chunk_id IN (SELECT id FROM chunks WHERE norma_id = %s)
+        """, (norma_id,))
+        embeddings_removidos = cur.rowcount
+
+        # 2. Deletar chunks
+        cur.execute("DELETE FROM chunks WHERE norma_id = %s", (norma_id,))
+        chunks_removidos = cur.rowcount
+
+        # 3. Deletar norma
+        cur.execute("DELETE FROM normas WHERE id = %s", (norma_id,))
+
+        conn.commit()
+        logger.info(
+            "Norma removida: id=%d codigo=%s nome=%s (%d chunks, %d embeddings)",
+            norma_id, codigo_norma, nome_norma, chunks_removidos, embeddings_removidos,
+        )
+
+        return {
+            "removido": True,
+            "norma_id": norma_id,
+            "nome": nome_norma,
+            "codigo": codigo_norma,
+            "chunks_removidos": chunks_removidos,
+            "embeddings_removidos": embeddings_removidos,
+        }
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Erro em /v1/ingest/upload: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-    logger.info("Upload ingerido: %s | chunks=%d | embeddings=%d", nome, len(chunks), n_emb)
-    return {
-        "norma_id": norma_id,
-        "nome": nome,
-        "codigo": codigo,
-        "chunks": len(chunks),
-        "embeddings": n_emb,
-    }
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"Erro ao remover norma: {e}")
+    finally:
+        cur.close()
 
 
 # --- Protocol schemas ---

@@ -1,20 +1,51 @@
-# TaxMind Light — Sprint 1: KB + RAG Funcional
+# TaxMind Light
 
-Sistema RAG local para análise da Reforma Tributária brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
+Sistema de análise tributária com RAG e protocolo de decisão para a Reforma Tributária brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
+
+## O que é o TaxMind Light?
+
+O TaxMind Light é uma ferramenta de suporte à decisão tributária composta por dois modos de uso:
+
+- **Consulta rápida** — perguntas pontuais sobre a Reforma Tributária, respondidas com fundamentação legal via RAG
+- **Protocolo P1→P9** — processo estruturado de 9 passos para análise, recomendação e decisão sobre cenários tributários complexos
+
+## Funcionalidades
+
+| Aba | Função |
+|-----|--------|
+| **Consultar** | Consulta rápida à base de conhecimento com indicadores de qualidade, fundamentação legal e ação recomendada |
+| **Adicionar Norma** | Upload de PDFs (INs, Resoluções, Pareceres), detecção de duplicidade por hash MD5, ingestão assíncrona, listagem e exclusão de documentos |
+| **Protocolo P1→P9** | Protocolo de decisão tributária: identificação do problema → análise → recomendação TaxMind → decisão → acompanhamento → aprendizado |
+| **Documentos** | Geração de documentos a partir dos casos (Consulta, Parecer, Relatório, Memorando, Comparativo) |
+| **Qualidade do Sistema** | Métricas de observabilidade, detecção de drift, regression testing |
+
+## Stack Técnica
+
+| Componente | Tecnologia |
+|------------|------------|
+| Linguagem | Python 3.12 |
+| Banco de dados | PostgreSQL 16 + pgvector (Docker Compose) |
+| Embeddings | voyage-3 (1024 dim) via VoyageAI API |
+| LLM | claude-haiku-4-5 (dev) / claude-sonnet-4-6 (prod) |
+| API | FastAPI (uvicorn) |
+| UI | Streamlit |
+| Busca vetorial | pgvector com índice HNSW (cosine, m=16, ef=64) |
+| Re-ranking | BM25 em memória (score híbrido: 0.7 cosine + 0.3 BM25) |
 
 ## Pré-requisitos
 
-- Python 3.12.3
+- Python 3.12+
 - Docker + Docker Compose
-- Chave Anthropic API (voyage-3 + claude-haiku)
+- Chave VoyageAI API (voyage-3)
+- Chave Anthropic API (Claude)
 
-## Setup End-to-End
+## Setup
 
 ### 1. Configurar variáveis de ambiente
 
 ```bash
-# Editar .env e preencher ANTHROPIC_API_KEY
-nano .env
+cp .env.example .env
+# Editar .env e preencher ANTHROPIC_API_KEY e VOYAGE_API_KEY
 ```
 
 ### 2. Subir o banco PostgreSQL + pgvector
@@ -30,61 +61,55 @@ docker compose ps   # aguardar status "healthy"
 pip install -r requirements.txt
 ```
 
-### 4. Rodar a ingestão dos PDFs
+### 4. Rodar a ingestão inicial dos PDFs
 
 ```bash
 python src/ingest/run_ingest.py
 ```
 
-O pipeline irá:
-- Extrair texto dos 3 PDFs (via pdfplumber)
-- Segmentar em chunks jurídicos (por artigo, parágrafo, inciso)
-- Gerar embeddings voyage-3 (dim 1024) via Anthropic API
-- Persistir tudo no PostgreSQL
+### 5. Iniciar a API
 
-Verificar resultado:
 ```bash
-docker exec -it taxmind-light-db-1 psql -U taxmind -d taxmind_db \
-  -c "SELECT COUNT(*) FROM chunks; SELECT COUNT(*) FROM embeddings;"
+uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 5. Testar o retriever
+### 6. Iniciar a UI
 
 ```bash
-python -c "
-from src.rag.retriever import retrieve
-resultados = retrieve('fato gerador do IBS')
-for r in resultados:
-    print(f'[{r.score_final:.3f}] {r.norma_codigo} | {r.artigo} | {r.texto[:120]}...')
-"
+streamlit run ui/app.py
 ```
 
-### 6. Rodar os testes unitários
+### 7. Rodar os testes
 
 ```bash
-pytest tests/unit/test_retriever.py -v
+pytest tests/unit/ -v
 ```
 
 ## Arquitetura
 
 ```
-PDF_SOURCE_DIR (read-only)
+PDF (upload ou PDF_SOURCE_DIR)
       │
       ▼
-  loader.py ──► pdfplumber ──► DocumentoNorma
+  loader.py ──► pdfplumber ──► texto extraído
       │
       ▼
- chunker.py ──► hierárquico (artigo → parágrafo → sliding window)
+ chunker.py ──► chunking hierárquico (artigo → parágrafo → sliding window)
       │
       ▼
  embedder.py ──► voyage-3 (batch 32, retry 3x)
       │
       ▼
-PostgreSQL/pgvector ──► HNSW index (cosine, m=16, ef=64)
+PostgreSQL/pgvector ──► HNSW index (1024 dim)
       │
       ▼
- retriever.py ──► vetorial (pgvector) + BM25 re-ranking
-                  score = 0.7 * cosine + 0.3 * bm25
+ retriever.py ──► busca vetorial + BM25 re-ranking + deduplicação por artigo
+      │
+      ▼
+ engine.py (cognitivo) ──► Claude LLM com anti-alucinação (M1-M4)
+      │
+      ▼
+ Streamlit UI ◄──► FastAPI (19+ endpoints)
 ```
 
 ## Estrutura de Pastas
@@ -92,30 +117,79 @@ PostgreSQL/pgvector ──► HNSW index (cosine, m=16, ef=64)
 ```
 taxmind-light/
 ├── docker-compose.yml
-├── .env                    # não versionar
+├── .env
 ├── requirements.txt
 ├── db/
-│   └── init.sql            # schema + extensão pgvector + índice HNSW
+│   └── init.sql
 ├── src/
+│   ├── api/
+│   │   └── main.py              # FastAPI — 19+ endpoints
+│   ├── cognitive/
+│   │   └── engine.py            # Motor cognitivo (Claude LLM)
 │   ├── ingest/
-│   │   ├── loader.py       # extração de texto dos PDFs
-│   │   ├── chunker.py      # chunking jurídico hierárquico
-│   │   ├── embedder.py     # embeddings voyage-3
-│   │   └── run_ingest.py   # pipeline principal
+│   │   ├── loader.py            # Extração de texto dos PDFs
+│   │   ├── chunker.py           # Chunking jurídico hierárquico
+│   │   ├── embedder.py          # Embeddings voyage-3
+│   │   └── run_ingest.py        # Pipeline de ingestão
+│   ├── observability/
+│   │   ├── collector.py         # Métricas de uso
+│   │   ├── drift.py             # Detecção de drift (2σ)
+│   │   └── regression.py        # Regression testing
+│   ├── outputs/
+│   │   ├── engine.py            # Geração de documentos (5 classes)
+│   │   ├── materialidade.py     # Cálculo de materialidade
+│   │   └── stakeholders.py      # Decomposição por stakeholder
+│   ├── protocol/
+│   │   ├── engine.py            # Máquina de estados P1→P9
+│   │   └── carimbo.py           # Detector de terceirização cognitiva
+│   ├── quality/
+│   │   └── engine.py            # DataQualityEngine (BL-01, BL-02, BL-03)
 │   └── rag/
-│       └── retriever.py    # retrieve() híbrido
+│       └── retriever.py         # Retrieval híbrido (vetorial + BM25)
+├── ui/
+│   └── app.py                   # Streamlit (5 abas)
 └── tests/
-    └── unit/
-        └── test_retriever.py
+    └── unit/                    # Testes unitários (137+)
 ```
 
-## Regras
+## Protocolo P1→P9
+
+| Passo | Nome | Responsável |
+|-------|------|-------------|
+| P1 | Identificar o problema | Usuário |
+| P2 | Mapear o cenário da empresa | Usuário |
+| P3 | Avaliar riscos e dados | Usuário |
+| P4 | Análise tributária | TaxMind (RAG + LLM) |
+| P5 | Posição do gestor | Usuário |
+| P6 | Recomendação TaxMind | TaxMind (auto-populado da análise P4) |
+| P7 | Decisão e responsável | Usuário |
+| P8 | Acompanhamento | Usuário |
+| P9 | Registro de aprendizado | Usuário |
+
+## API — Principais Endpoints
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| GET | `/v1/health` | Status do sistema |
+| POST | `/v1/analyze` | Consulta RAG + LLM |
+| GET | `/v1/chunks` | Busca de chunks |
+| POST | `/v1/ingest/upload` | Upload assíncrono de PDF |
+| POST | `/v1/ingest/check-duplicate` | Verificação de duplicidade |
+| GET | `/v1/ingest/jobs/{job_id}` | Polling de ingestão |
+| GET | `/v1/ingest/normas` | Listar documentos na base |
+| DELETE | `/v1/ingest/normas/{norma_id}` | Remover documento da base |
+| POST | `/v1/protocol/cases` | Criar caso |
+| POST | `/v1/protocol/cases/{id}/steps` | Submeter passo |
+| GET | `/v1/protocol/cases/{id}` | Detalhes do caso |
+| POST | `/v1/documents/generate` | Gerar documento |
+| GET | `/v1/observability/metrics` | Métricas de uso |
+| GET | `/v1/observability/drift` | Detecção de drift |
+
+## Regras do Projeto
 
 - PDFs **nunca** são copiados para este repositório
 - Único vector store: pgvector (sem LangChain, FAISS, ChromaDB)
 - Embedding model: voyage-3 exclusivamente
-- Índice HNSW obrigatório (m=16, ef_construction=64)
-
-## Critério de Aceite Sprint 1
-
-≥ 8/10 queries de validação com top-3 chunks pertinentes (registradas em `avaliacoes`).
+- Índice HNSW obrigatório
+- Testes unitários nunca fazem chamadas externas (mocks obrigatórios)
+- Anti-alucinação: 4 mecanismos (M1-M4) em toda resposta do LLM

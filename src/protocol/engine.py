@@ -34,15 +34,15 @@ PASSO_STATUS = {
 }
 
 PASSO_NOME = {
-    1: "Registrar",
-    2: "Contextualizar",
-    3: "Estruturar",
-    4: "Analisar",
-    5: "Formular Hipótese",
-    6: "Recomendar",
-    7: "Decidir",
-    8: "Monitorar",
-    9: "Aprender",
+    1: "Identificar o problema",
+    2: "Mapear o cenário da empresa",
+    3: "Avaliar riscos e dados",
+    4: "Análise tributária",
+    5: "Posição do gestor",
+    6: "Recomendação TaxMind",
+    7: "Decisão e responsável",
+    8: "Acompanhamento",
+    9: "Registro de aprendizado",
 }
 
 TRANSICOES_VALIDAS: dict[int, list[int]] = {
@@ -67,7 +67,7 @@ CAMPOS_OBRIGATORIOS: dict[int, list[str]] = {
     6: ["recomendacao"],
     7: ["decisao_final", "decisor"],
     8: ["resultado_real", "data_revisao"],
-    9: ["padrao_extraido"],
+    9: ["aprendizado_extraido"],
 }
 
 
@@ -107,22 +107,22 @@ def _validar_dados_passo(passo: int, dados: dict) -> None:
     """Valida campos obrigatórios e regras específicas por passo."""
     faltando = [c for c in CAMPOS_OBRIGATORIOS[passo] if dados.get(c) is None or dados.get(c) == ""]
     if faltando:
-        raise ProtocolError(f"P{passo}: campos obrigatórios ausentes: {faltando}")
+        raise ProtocolError(f"P{passo}: Preencha todos os campos obrigatórios antes de avançar: {faltando}")
 
     if passo == 1:
         titulo = dados.get("titulo", "")
         if len(str(titulo).strip()) < 10:
-            raise ProtocolError("P1: título deve ter no mínimo 10 caracteres")
+            raise ProtocolError("P1: O nome do caso deve ter pelo menos 10 caracteres")
 
     if passo == 2:
         premissas = dados.get("premissas", [])
         if not isinstance(premissas, list) or len(premissas) < 2:
-            raise ProtocolError("P2: são necessárias pelo menos 2 premissas")
+            raise ProtocolError("P2: Informe pelo menos 2 premissas para continuar")
 
     if passo == 3:
         riscos = dados.get("riscos", [])
         if not isinstance(riscos, list) or len(riscos) < 1:
-            raise ProtocolError("P3: pelo menos 1 risco deve ser identificado")
+            raise ProtocolError("P3: Identifique pelo menos 1 risco antes de avançar")
 
 
 def _registrar_historico(
@@ -182,8 +182,34 @@ class ProtocolStateEngine:
             raise ProtocolError(f"Passo {passo_atual} inválido")
 
         proximos = TRANSICOES_VALIDAS[passo_atual]
+
+        # P9 é terminal: salvar dados e arquivar caso sem tentar avançar
         if not proximos:
-            raise ProtocolError(f"P{passo_atual} é o passo terminal (P9). Não há próximo passo.")
+            _validar_dados_passo(passo_atual, dados)
+            conn = _get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO case_steps (case_id, passo, dados, concluido)
+                VALUES (%s, %s, %s, TRUE)
+                ON CONFLICT (case_id, passo) DO UPDATE
+                    SET dados = EXCLUDED.dados, concluido = TRUE, updated_at = NOW()
+                """,
+                (case_id, passo_atual, json.dumps(dados)),
+            )
+            status_de = PASSO_STATUS[passo_atual]
+            cur.execute(
+                "UPDATE cases SET status='aprendizado_extraido'::case_status, updated_at=NOW() WHERE id=%s",
+                (case_id,),
+            )
+            _registrar_historico(cur, case_id, status_de, "aprendizado_extraido", passo_atual, passo_atual,
+                                 "Caso concluído — P9 aprendizado registrado")
+            conn.commit()
+            cur.close()
+            conn.close()
+            logger.info("Caso %d: P9 concluído e arquivado", case_id)
+            return CaseStep(case_id=case_id, passo=passo_atual, dados=dados,
+                            concluido=True, proximo_passo=None)
 
         proximo = proximos[0]  # avanço sempre vai para o primeiro da lista
 
