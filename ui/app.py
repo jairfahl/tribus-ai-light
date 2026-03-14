@@ -28,6 +28,18 @@ def nome_norma(codigo: str) -> str:
     return NOMES_NORMAS.get(codigo, codigo)
 
 
+def _sanitize_latex(texto: str) -> str:
+    """Remove notação LaTeX/MathJax que o Streamlit renderiza como fórmula."""
+    if not texto:
+        return texto
+    # Substituir $...$ por texto sem cifrões (evita renderização de fórmulas)
+    resultado = re.sub(r'\$([^$]+)\$', r'\1', texto)
+    # Remover \( \) \[ \] soltos
+    resultado = resultado.replace('\\(', '').replace('\\)', '')
+    resultado = resultado.replace('\\[', '').replace('\\]', '')
+    return resultado
+
+
 st.set_page_config(
     page_title="TaxMind Light — Reforma Tributária",
     page_icon="⚖️",
@@ -195,15 +207,15 @@ with aba1:
         st.subheader("Análise")
         if data["anti_alucinacao"]["bloqueado"]:
             st.error("❌ Análise bloqueada pelas verificações de integridade.")
-        st.write(data["resposta"])
+        st.write(_sanitize_latex(data["resposta"]))
 
         if data.get("impacto_financeiro"):
             st.subheader("💰 Impacto Financeiro")
-            st.info(data["impacto_financeiro"])
+            st.info(_sanitize_latex(data["impacto_financeiro"]))
 
         if data.get("acao_recomendada"):
             st.subheader("🎯 Ação Recomendada")
-            st.success(data["acao_recomendada"])
+            st.success(_sanitize_latex(data["acao_recomendada"]))
 
         grau = data["grau_consolidacao"]
         grau_label = {
@@ -221,7 +233,7 @@ with aba1:
 
         if data.get("contra_tese"):
             with st.expander("⚖️ Posição contrária"):
-                st.write(data["contra_tese"])
+                st.write(_sanitize_latex(data["contra_tese"]))
 
         anti = data["anti_alucinacao"]
         flags = anti.get("flags", [])
@@ -259,7 +271,10 @@ with aba2:
     st.title("Adicionar Norma")
     st.caption("Adicione INs, Resoluções, Pareceres ou Manuais à base de conhecimento.")
 
-    uploaded_file = st.file_uploader("Selecione o arquivo PDF", type=["pdf"])
+    uploaded_file = st.file_uploader(
+        "Selecione o arquivo",
+        type=["pdf", "docx", "xlsx", "html", "htm", "txt", "md", "csv"],
+    )
 
     # Verificar duplicidade imediatamente após upload
     _dup_bloqueado = False
@@ -267,7 +282,7 @@ with aba2:
         try:
             check_resp = httpx.post(
                 f"{API_BASE}/v1/ingest/check-duplicate",
-                files={"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")},
+                files={"file": (uploaded_file.name, uploaded_file.getvalue())},
                 timeout=15,
             )
             if check_resp.status_code == 200:
@@ -305,7 +320,7 @@ with aba2:
         try:
             resp = httpx.post(
                 f"{API_BASE}/v1/ingest/upload",
-                files={"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")},
+                files={"file": (uploaded_file.name, uploaded_file.getvalue())},
                 data={"nome": nome_doc.strip(), "tipo": tipo_doc},
                 timeout=30,
             )
@@ -530,24 +545,146 @@ with aba3:
             st.markdown(f"### {badge} {caso['titulo']}")
             st.caption(f"Etapa atual: **{PASSO_NOME.get(passo_atual, str(passo_atual))}** · Status: {status_label}")
 
-            # Caso já concluído — exibir mensagem e não mostrar formulário
+            # Caso já concluído — modo read-only com navegação entre passos
             _caso_concluido = status == "aprendizado_extraido"
             if _caso_concluido:
                 st.progress(1.0, text="Etapa 9/9 — Concluído")
                 st.success(
-                    "**Caso concluído e registrado com sucesso!**\n\n"
-                    "Todos os 9 passos do protocolo foram completados."
+                    "**Caso concluído e registrado com sucesso!** "
+                    "Navegue pelos passos abaixo para revisar todas as informações."
                 )
                 st.info(
-                    "**Próximos passos:**\n\n"
-                    "- Acesse a aba **Documentos** para gerar o Dossiê de Decisão, Parecer, Memorando ou Relatório\n"
-                    "- Volte à aba **Consultar** para fazer novas análises sobre a Reforma Tributária\n"
-                    "- Ou crie um **novo caso** no Protocolo P1→P9 acima"
+                    "**Próximos passos:** "
+                    "Acesse a aba **Documentos** para gerar relatórios · "
+                    "**Consultar** para novas análises · "
+                    "ou crie um **novo caso** acima"
                 )
-                st.balloons()
 
-            if _caso_concluido:
-                # Histórico colapsado — disponível mesmo após conclusão
+                # Navegador de passos read-only
+                _steps_data_ro = caso.get("steps") or caso.get("passos") or {}
+                _passo_vis = st.selectbox(
+                    "Visualizar passo:",
+                    options=[1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    format_func=lambda p: PASSO_NOME.get(p, f"P{p}"),
+                    key="passo_visualizar_readonly",
+                )
+                _step_ro = _steps_data_ro.get(_passo_vis) or _steps_data_ro.get(str(_passo_vis)) or {}
+                _dados_ro = _step_ro.get("dados") or {}
+
+                st.divider()
+
+                if _passo_vis == 1:
+                    st.subheader("P1 — Identificar o problema")
+                    st.caption("Título do caso")
+                    st.info(_dados_ro.get("titulo", caso.get("titulo", "—")))
+                    st.caption("Descrição do problema tributário")
+                    st.markdown(_dados_ro.get("descricao") or "—")
+                    st.caption("Situação atual da empresa")
+                    st.markdown(_dados_ro.get("contexto_fiscal") or "—")
+
+                elif _passo_vis == 2:
+                    st.subheader("P2 — Mapear o cenário da empresa")
+                    st.caption("Premissas declaradas")
+                    _prems = _dados_ro.get("premissas", [])
+                    if _prems:
+                        for _p in _prems:
+                            st.markdown(f"- {_p}")
+                    else:
+                        st.info("Nenhuma premissa registrada.")
+                    st.caption("Período de referência")
+                    st.info(_dados_ro.get("periodo_fiscal") or "—")
+
+                elif _passo_vis == 3:
+                    st.subheader("P3 — Avaliar riscos e dados")
+                    st.caption("Riscos mapeados")
+                    _riscos = _dados_ro.get("riscos", [])
+                    if _riscos:
+                        for _r in _riscos:
+                            st.markdown(f"- {_r}")
+                    else:
+                        st.info("Nenhum risco registrado.")
+                    st.caption("Avaliação dos dados disponíveis")
+                    _qual_map = {"verde": "🟢 Verde — dados completos", "amarelo": "🟡 Amarelo — dados parciais", "vermelho": "🔴 Vermelho — dados insuficientes"}
+                    st.info(_qual_map.get(_dados_ro.get("dados_qualidade", ""), _dados_ro.get("dados_qualidade") or "—"))
+
+                elif _passo_vis == 4:
+                    st.subheader("P4 — Análise tributária (TaxMind)")
+                    st.caption("Pergunta submetida")
+                    st.info(_dados_ro.get("query_analise") or "—")
+                    _analise = _dados_ro.get("analise_result") or {}
+                    if _analise:
+                        col_sc, col_gc = st.columns(2)
+                        with col_sc:
+                            st.caption("Cobertura da base legal")
+                            st.info(_analise.get("scoring_confianca") or "—")
+                        with col_gc:
+                            st.caption("Consenso de mercado")
+                            st.info(_analise.get("grau_consolidacao") or "—")
+                        st.caption("Análise")
+                        st.markdown(_sanitize_latex(_analise.get("resposta") or "—"))
+                        if _analise.get("acao_recomendada"):
+                            st.caption("Ação recomendada")
+                            st.info(_sanitize_latex(_analise["acao_recomendada"]))
+                        if _analise.get("impacto_financeiro"):
+                            st.caption("Impacto financeiro")
+                            st.info(_sanitize_latex(_analise["impacto_financeiro"]))
+                        if _analise.get("fundamento_legal"):
+                            st.caption("Base legal")
+                            _fl = _analise["fundamento_legal"]
+                            if isinstance(_fl, list):
+                                st.markdown(", ".join(_fl))
+                            else:
+                                st.markdown(str(_fl))
+                        if _analise.get("contra_tese"):
+                            st.caption("Contra-tese")
+                            st.warning(_sanitize_latex(_analise["contra_tese"]))
+                        if _analise.get("disclaimer"):
+                            st.caption("Ressalva")
+                            st.warning(_sanitize_latex(_analise["disclaimer"]))
+                        # Chunks utilizados
+                        _chunks = _analise.get("chunks", [])
+                        if _chunks:
+                            with st.expander(f"📚 {len(_chunks)} trechos da base legal utilizados"):
+                                for _ch in _chunks:
+                                    st.markdown(
+                                        f"**{_ch.get('norma_codigo', '?')}** · {_ch.get('artigo') or 'sem artigo'} "
+                                        f"(score: {_ch.get('score_final', 0):.3f})"
+                                    )
+                                    st.caption(_ch.get("texto", "")[:300])
+                    else:
+                        st.warning("Dados da análise não disponíveis.")
+
+                elif _passo_vis == 5:
+                    st.subheader("P5 — Posição do gestor")
+                    st.caption("Posição independente registrada antes da recomendação da IA")
+                    st.markdown(_dados_ro.get("hipotese_gestor") or "—")
+
+                elif _passo_vis == 6:
+                    st.subheader("P6 — Recomendação TaxMind")
+                    st.caption("Recomendação gerada pela IA (com base na análise P4)")
+                    st.markdown(_sanitize_latex(_dados_ro.get("recomendacao") or "—"))
+
+                elif _passo_vis == 7:
+                    st.subheader("P7 — Decisão e responsável")
+                    st.caption("Decisão tomada")
+                    st.info(_dados_ro.get("decisao_final") or "—")
+                    st.caption("Responsável pela decisão")
+                    st.info(_dados_ro.get("decisor") or "—")
+
+                elif _passo_vis == 8:
+                    st.subheader("P8 — Acompanhamento")
+                    st.caption("O que aconteceu na prática")
+                    st.markdown(_dados_ro.get("resultado_real") or "—")
+                    st.caption("Data de revisão")
+                    st.info(_dados_ro.get("data_revisao") or "—")
+
+                elif _passo_vis == 9:
+                    st.subheader("P9 — Registro de aprendizado")
+                    st.caption("Aprendizado extraído deste caso")
+                    st.markdown(_dados_ro.get("aprendizado_extraido") or "—")
+
+                # Histórico de transições — sempre visível
+                st.divider()
                 with st.expander("📜 Histórico de transições"):
                     for h in caso["historico"]:
                         de_label = STATUS_LABEL.get(h["status_de"], h["status_de"] or "início")
@@ -556,6 +693,7 @@ with aba3:
                             f"`{h['created_at'][:19]}` — P{h['passo_de'] or '?'} → P{h['passo_para']} "
                             f"({de_label} → {para_label}) — {h['motivo'] or ''}"
                         )
+
             else:
                 # Progresso visual
                 st.progress((passo_atual - 1) / 8.0, text=f"Etapa {passo_atual}/9")
@@ -610,7 +748,7 @@ with aba3:
                                     f"**Cobertura da base legal**: {analise['scoring_confianca']} | "
                                     f"**Consenso de Mercado**: {analise['grau_consolidacao']}"
                                 )
-                                st.markdown(f"**Análise**: {analise['resposta']}")
+                                st.markdown(f"**Análise**: {_sanitize_latex(analise['resposta'])}")
                                 if analise.get("fundamento_legal"):
                                     st.markdown(f"**Base legal**: {', '.join(analise['fundamento_legal'])}")
                                 if analise.get("disclaimer"):

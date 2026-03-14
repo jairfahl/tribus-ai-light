@@ -43,7 +43,7 @@ from src.ingest.chunker import chunkar_documento
 from src.protocol.carimbo import CarimboConfirmacaoError, DetectorCarimbo
 from src.protocol.engine import CaseEstado, ProtocolError, ProtocolStateEngine
 from src.ingest.embedder import gerar_e_persistir_embeddings
-from src.ingest.loader import DocumentoNorma, extrair_texto_pdf
+from src.ingest.loader import EXTENSOES_SUPORTADAS, DocumentoNorma, extrair_texto_bytes
 from src.outputs.engine import OutputClass, OutputEngine, OutputError, OutputResult
 from src.outputs.stakeholders import StakeholderTipo
 from src.quality.engine import QualidadeStatus
@@ -128,6 +128,7 @@ def _analise_to_dict(resultado: AnaliseResult) -> dict:
         "prompt_version": resultado.prompt_version,
         "model_id": resultado.model_id,
         "latencia_ms": resultado.latencia_ms,
+        "retrieval_strategy": resultado.retrieval_strategy,
     }
 
 
@@ -223,78 +224,79 @@ async def health():
 
 def _processar_ingest_background(job_id: str, conteudo: bytes, filename: str,
                                   nome: str, tipo: str, codigo: str):
-    """Processa ingestão de PDF em background (chunking + embeddings)."""
+    """Processa ingestão de documento em background (extração + chunking + embeddings)."""
     try:
         _ingest_jobs[job_id]["status"] = JobStatus.PROCESSING
         file_hash = hashlib.md5(conteudo).hexdigest()
 
-        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=True) as tmp:
-            tmp.write(conteudo)
-            tmp.flush()
-            tmp_path = Path(tmp.name)
+        try:
+            texto = extrair_texto_bytes(conteudo, filename)
+        except ValueError as e:
+            _ingest_jobs[job_id]["status"] = JobStatus.ERROR
+            _ingest_jobs[job_id]["message"] = str(e)
+            return
 
-            texto = extrair_texto_pdf(tmp_path)
-            if not texto.strip():
-                _ingest_jobs[job_id]["status"] = JobStatus.ERROR
-                _ingest_jobs[job_id]["message"] = "PDF sem texto extraível (pode ser imagem)"
-                return
+        if not texto.strip():
+            _ingest_jobs[job_id]["status"] = JobStatus.ERROR
+            _ingest_jobs[job_id]["message"] = "Documento sem texto extraível"
+            return
 
-            doc = DocumentoNorma(
-                codigo=codigo,
-                nome=nome,
-                tipo=tipo,
-                numero="0",
-                ano=2024,
-                arquivo=filename,
-                texto=texto,
-            )
+        doc = DocumentoNorma(
+            codigo=codigo,
+            nome=nome,
+            tipo=tipo,
+            numero="0",
+            ano=2024,
+            arquivo=filename,
+            texto=texto,
+        )
 
-            url = os.getenv("DATABASE_URL")
-            conn = psycopg2.connect(url)
-            cur = conn.cursor()
+        url = os.getenv("DATABASE_URL")
+        conn = psycopg2.connect(url)
+        cur = conn.cursor()
 
+        cur.execute(
+            """
+            INSERT INTO normas (codigo, nome, tipo, numero, ano, arquivo, file_hash)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (codigo) DO UPDATE SET
+                nome = EXCLUDED.nome, arquivo = EXCLUDED.arquivo,
+                file_hash = EXCLUDED.file_hash, vigente = TRUE
+            RETURNING id
+            """,
+            (doc.codigo, doc.nome, doc.tipo, doc.numero, doc.ano, doc.arquivo, file_hash),
+        )
+        norma_id = cur.fetchone()[0]
+        conn.commit()
+
+        chunks = chunkar_documento(doc.texto)
+
+        chunk_ids: list[int] = []
+        for chunk in chunks:
             cur.execute(
                 """
-                INSERT INTO normas (codigo, nome, tipo, numero, ano, arquivo, file_hash)
+                INSERT INTO chunks (norma_id, chunk_index, texto, artigo, secao, titulo, tokens)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (codigo) DO UPDATE SET
-                    nome = EXCLUDED.nome, arquivo = EXCLUDED.arquivo,
-                    file_hash = EXCLUDED.file_hash, vigente = TRUE
+                ON CONFLICT (norma_id, chunk_index) DO NOTHING
                 RETURNING id
                 """,
-                (doc.codigo, doc.nome, doc.tipo, doc.numero, doc.ano, doc.arquivo, file_hash),
+                (norma_id, chunk.chunk_index, chunk.texto, chunk.artigo,
+                 chunk.secao, chunk.titulo, chunk.tokens),
             )
-            norma_id = cur.fetchone()[0]
-            conn.commit()
-
-            chunks = chunkar_documento(doc.texto)
-
-            chunk_ids: list[int] = []
-            for chunk in chunks:
+            row = cur.fetchone()
+            if row:
+                chunk_ids.append(row[0])
+            else:
                 cur.execute(
-                    """
-                    INSERT INTO chunks (norma_id, chunk_index, texto, artigo, secao, titulo, tokens)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (norma_id, chunk_index) DO NOTHING
-                    RETURNING id
-                    """,
-                    (norma_id, chunk.chunk_index, chunk.texto, chunk.artigo,
-                     chunk.secao, chunk.titulo, chunk.tokens),
+                    "SELECT id FROM chunks WHERE norma_id=%s AND chunk_index=%s",
+                    (norma_id, chunk.chunk_index),
                 )
-                row = cur.fetchone()
-                if row:
-                    chunk_ids.append(row[0])
-                else:
-                    cur.execute(
-                        "SELECT id FROM chunks WHERE norma_id=%s AND chunk_index=%s",
-                        (norma_id, chunk.chunk_index),
-                    )
-                    chunk_ids.append(cur.fetchone()[0])
-            conn.commit()
+                chunk_ids.append(cur.fetchone()[0])
+        conn.commit()
 
-            n_emb = gerar_e_persistir_embeddings(conn, chunk_ids, chunks)
-            cur.close()
-            conn.close()
+        n_emb = gerar_e_persistir_embeddings(conn, chunk_ids, chunks)
+        cur.close()
+        conn.close()
 
         logger.info("Upload ingerido: %s | chunks=%d | embeddings=%d", nome, len(chunks), n_emb)
         _ingest_jobs[job_id]["status"] = JobStatus.DONE
@@ -353,15 +355,22 @@ async def check_duplicate(file: UploadFile = File(...)):
 @app.post("/v1/ingest/upload")
 async def ingest_upload(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(..., description="Arquivo PDF a ingerir"),
+    file: UploadFile = File(..., description="Arquivo a ingerir (PDF, DOCX, XLSX, HTML, TXT, MD, CSV)"),
     nome: str = Form(..., description="Nome do documento (ex: IN RFB 2184/2024)"),
     tipo: str = Form(..., description="Tipo: IN | Resolucao | Parecer | Manual | Outro"),
 ):
     """
-    Ingestão assíncrona de PDF. Retorna job_id para polling via GET /v1/ingest/jobs/{job_id}.
+    Ingestão assíncrona de documento. Retorna job_id para polling via GET /v1/ingest/jobs/{job_id}.
+    Formatos aceitos: PDF, DOCX, XLSX, HTML, TXT, MD, CSV.
     """
-    if not file.filename or not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Apenas arquivos PDF são aceitos")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Nome do arquivo ausente")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in EXTENSOES_SUPORTADAS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Formato '{ext}' não suportado. Aceitos: {', '.join(sorted(EXTENSOES_SUPORTADAS))}",
+        )
 
     logger.info("POST /v1/ingest/upload nome=%s tipo=%s", nome, tipo)
 

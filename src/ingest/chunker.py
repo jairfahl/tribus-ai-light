@@ -2,9 +2,10 @@
 chunker.py — chunking hierárquico para normas jurídicas brasileiras.
 
 Estratégia:
-1. Divide por artigo (regex Art.\\s*\\d+)
+1. Divide por artigo (regex Art.\\s*\\d+) — normas legislativas
 2. Se artigo > CHUNK_SIZE tokens → quebra por parágrafo/inciso
-3. Fallback: sliding window de CHUNK_SIZE tokens com overlap
+3. Se sem artigos mas com headers Markdown (##) → split por seção MD
+4. Fallback: sliding window de CHUNK_SIZE tokens com overlap
 """
 
 import logging
@@ -141,6 +142,61 @@ _SECAO_PATTERN = re.compile(
 )
 _ARTIGO_PATTERN = re.compile(r'(Art\.\s*\d+[º°]?\.?)', re.MULTILINE)
 
+# Padrão para headers Markdown (##, ###, ####)
+_MD_HEADER_PATTERN = re.compile(r'^(#{1,4})\s+(.+)$', re.MULTILINE)
+
+
+def _chunkar_por_headers_md(texto: str) -> list[ChunkNorma]:
+    """
+    Split por headers Markdown para documentos sem artigos (manuais, guias, NTs).
+
+    Cada seção delimitada por um header vira um chunk. Seções longas são
+    subdivididas via sliding window.
+    """
+    headers = list(_MD_HEADER_PATTERN.finditer(texto))
+    if not headers:
+        return []
+
+    chunks: list[ChunkNorma] = []
+    chunk_idx = 0
+
+    for i, match in enumerate(headers):
+        header_text = match.group(2).strip()
+        header_level = len(match.group(1))
+        start = match.start()
+        end = headers[i + 1].start() if i + 1 < len(headers) else len(texto)
+        secao_texto = texto[start:end].strip()
+
+        if not secao_texto:
+            continue
+
+        tokens_secao = _contar_tokens(secao_texto)
+
+        if tokens_secao <= CHUNK_SIZE:
+            chunks.append(ChunkNorma(
+                chunk_index=chunk_idx,
+                texto=secao_texto,
+                artigo=None,
+                secao=header_text,
+                titulo=header_text if header_level <= 2 else None,
+                tokens=tokens_secao,
+            ))
+            chunk_idx += 1
+        else:
+            # Seção longa → sliding window mantendo metadata
+            sub = _sliding_window(secao_texto, None, header_text,
+                                  header_text if header_level <= 2 else None, chunk_idx)
+            for c in sub:
+                c.chunk_index = chunk_idx
+                chunk_idx += 1
+            chunks.extend(sub)
+
+    # Reindexar
+    for i, c in enumerate(chunks):
+        c.chunk_index = i
+
+    return chunks
+
 
 def chunkar_documento(texto: str) -> list[ChunkNorma]:
     """
@@ -160,8 +216,13 @@ def chunkar_documento(texto: str) -> list[ChunkNorma]:
     artigo_matches = list(_ARTIGO_PATTERN.finditer(texto))
 
     if not artigo_matches:
-        # Sem artigos detectados → sliding window no documento inteiro
-        logger.warning("Nenhum artigo detectado — usando sliding window global")
+        # Sem artigos → tentar split por headers Markdown (manuais, guias, NTs)
+        md_chunks = _chunkar_por_headers_md(texto)
+        if md_chunks:
+            logger.info("Sem artigos detectados — usando split por headers Markdown (%d chunks)", len(md_chunks))
+            return md_chunks
+        # Fallback final: sliding window no documento inteiro
+        logger.warning("Nenhum artigo nem header MD detectado — usando sliding window global")
         return _sliding_window(texto, None, None, None, 0)
 
     for i, match in enumerate(artigo_matches):

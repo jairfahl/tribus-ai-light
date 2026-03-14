@@ -69,6 +69,19 @@ def mock_llm_calls():
 
 
 @pytest.fixture(autouse=True)
+def mock_spd_normas():
+    """Bloqueia chamada ao banco em listar_normas_ativas."""
+    with patch(
+        "src.rag.spd.listar_normas_ativas",
+        return_value=["EC132_2023", "LC214_2025", "LC227_2026"],
+    ), patch(
+        "src.cognitive.engine.listar_normas_ativas",
+        return_value=["EC132_2023", "LC214_2025", "LC227_2026"],
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def mock_embedding_calls():
     """Bloqueia chamadas ao Voyage AI (embeddings e retriever)."""
     with patch("src.rag.retriever._embed_query", return_value=[0.1] * 1024), \

@@ -29,6 +29,7 @@ class RetrievalParams:
     cosine_weight: float
     bm25_weight: float
     forcar_multi_norma: bool = False
+    sugerir_spd: bool = False
 
 
 # Padrões regex para classificação
@@ -128,6 +129,7 @@ def obter_params_adaptativos(
             cosine_weight=0.7,
             bm25_weight=0.3,
             forcar_multi_norma=True,
+            sugerir_spd=True,
         )
 
     # INTERPRETATIVA (default)
@@ -136,4 +138,5 @@ def obter_params_adaptativos(
         rerank_top_n=rerank_top_n_base + 10,
         cosine_weight=0.6,
         bm25_weight=0.4,
+        sugerir_spd=True,
     )

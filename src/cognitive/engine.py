@@ -16,10 +16,17 @@ import psycopg2
 from dotenv import load_dotenv
 
 from src.quality.engine import QualidadeResult, QualidadeStatus, avaliar_qualidade
-from src.rag.adaptive import obter_params_adaptativos
+from src.rag.adaptive import classificar_query, obter_params_adaptativos
 from src.rag.corrector import CorrectorRAG
 from src.rag.decomposer import QueryDecomposer
 from src.rag.retriever import ChunkResultado, retrieve
+from src.rag.spd import (
+    SPDRoutingDecision,
+    SPDStrategy,
+    decidir_estrategia,
+    listar_normas_ativas,
+    spd_retrieve,
+)
 
 load_dotenv()
 
@@ -65,6 +72,9 @@ ESTILO DO CAMPO "resposta":
   "fundamento_legal" — nunca intercaladas no corpo da "resposta".
 - Proibido: enumerações "(1), (2), (3)", linguagem passiva, parênteses
   explicativos longos, citações literais de artigos no corpo da resposta.
+- NUNCA usar notação LaTeX, MathJax ou símbolos como $, \\(, \\), \\[, \\].
+  Escrever valores monetários por extenso: "R$ 100 mil", "R$ 1,2 milhão".
+  Escrever fórmulas em texto corrido, sem formatação matemática.
 
 EXEMPLO DE RESPOSTA BEM FORMATADA:
 "A partir de 2026, sua empresa passa a recolher CBS no lugar do PIS/COFINS,
@@ -126,6 +136,7 @@ class AnaliseResult:
     prompt_version: str
     model_id: str
     latencia_ms: int
+    retrieval_strategy: str = "standard"
 
 
 _anthropic_client: Optional[anthropic.Anthropic] = None
@@ -282,6 +293,7 @@ def _registrar_interacao(
     dados: dict,
     model_id: str,
     latencia_ms: int,
+    retrieval_strategy: str = "standard",
 ) -> None:
     """Registra em ai_interactions."""
     try:
@@ -291,8 +303,9 @@ def _registrar_interacao(
             INSERT INTO ai_interactions (
                 query_texto, chunks_ids, qualidade_status, scoring_confianca,
                 grau_consolidacao, m1_existencia, m2_validade, m3_pertinencia,
-                m4_consistencia, bloqueado, prompt_version, model_id, latencia_ms
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                m4_consistencia, bloqueado, prompt_version, model_id, latencia_ms,
+                retrieval_strategy
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 query,
@@ -308,6 +321,7 @@ def _registrar_interacao(
                 PROMPT_VERSION,
                 model_id,
                 latencia_ms,
+                retrieval_strategy,
             ),
         )
         conn.commit()
@@ -342,13 +356,40 @@ def analisar(
     if params.forcar_multi_norma and norma_filter:
         norma_filter = None  # força busca em todas as normas para queries comparativas
 
+    # SPD routing — decidir estratégia antes do retrieve
+    try:
+        normas_ativas = listar_normas_ativas()
+    except Exception as e:
+        logger.warning("listar_normas_ativas falhou, fallback standard: %s", e)
+        normas_ativas = []
+
+    query_tipo = classificar_query(query)
+    decisao = decidir_estrategia(
+        query_tipo=query_tipo.value,
+        norma_filter=norma_filter,
+        num_normas=len(normas_ativas),
+    )
+    logger.info("SPD routing: strategy=%s reason=%s", decisao.strategy.value, decisao.reason)
+
     def _do_retrieve(q: str) -> list[ChunkResultado]:
         return retrieve(q, top_k=params.top_k, rerank_top_n=params.rerank_top_n,
                         norma_filter=norma_filter, excluir_tipos=_excluir,
                         cosine_weight=params.cosine_weight, bm25_weight=params.bm25_weight)
 
-    # Sub-question decomposition (opt-in)
-    if decompose:
+    if decisao.strategy == SPDStrategy.SPD:
+        # SPD: retrieval per-document
+        spd_result = spd_retrieve(
+            query=query,
+            normas=normas_ativas,
+            top_k_por_norma=max(3, params.top_k // len(normas_ativas) + 1),
+            rerank_top_n=params.rerank_top_n,
+            excluir_tipos=_excluir,
+            cosine_weight=params.cosine_weight,
+            bm25_weight=params.bm25_weight,
+        )
+        chunks = spd_result.chunks_merged[:params.top_k]
+    elif decompose:
+        # Sub-question decomposition (opt-in)
         try:
             decomposer = QueryDecomposer(model=model)
             decomp_result = decomposer.decompor_e_recuperar(query, retrieve_fn=_do_retrieve)
@@ -370,6 +411,29 @@ def analisar(
     # P2 — Quality Gate
     qualidade = avaliar_qualidade(query, chunks)
 
+    # RS-02 reactive fallback: se fonte unica detectada, retry com SPD
+    if (decisao.strategy == SPDStrategy.STANDARD
+            and "RS-02" in qualidade.ressalvas
+            and len(normas_ativas) >= 2):
+        logger.info("RS-02 detectado — retry com SPD-RAG")
+        try:
+            spd_result = spd_retrieve(
+                query=query,
+                normas=normas_ativas,
+                top_k_por_norma=3,
+                rerank_top_n=params.rerank_top_n,
+                excluir_tipos=_excluir,
+                cosine_weight=params.cosine_weight,
+                bm25_weight=params.bm25_weight,
+            )
+            if len({c.norma_codigo for c in spd_result.chunks_merged}) > 1:
+                chunks = spd_result.chunks_merged[:params.top_k]
+                qualidade = avaliar_qualidade(query, chunks)
+                decisao = SPDRoutingDecision(SPDStrategy.SPD_REACTIVE, "RS-02 fallback")
+                logger.info("SPD reactive: cobertura multi-norma restaurada")
+        except Exception as e:
+            logger.warning("SPD reactive fallback falhou: %s", e)
+
     if qualidade.status == QualidadeStatus.VERMELHO:
         latencia_ms = int((time.time() - t0) * 1000)
         anti = AntiAlucinacaoResult(bloqueado=True, flags=["BLOQUEADO_POR_QUALIDADE"] + qualidade.bloqueios)
@@ -387,8 +451,10 @@ def analisar(
             prompt_version=PROMPT_VERSION,
             model_id=model,
             latencia_ms=latencia_ms,
+            retrieval_strategy=decisao.strategy.value,
         )
-        _registrar_interacao(conn, query, chunks, qualidade, anti, {}, model, latencia_ms)
+        _registrar_interacao(conn, query, chunks, qualidade, anti, {}, model, latencia_ms,
+                            retrieval_strategy=decisao.strategy.value)
         conn.close()
         return resultado
 
@@ -479,9 +545,11 @@ def analisar(
         prompt_version=PROMPT_VERSION,
         model_id=model,
         latencia_ms=latencia_ms,
+        retrieval_strategy=decisao.strategy.value,
     )
 
-    _registrar_interacao(conn, query, chunks, qualidade, anti, dados, model, latencia_ms)
+    _registrar_interacao(conn, query, chunks, qualidade, anti, dados, model, latencia_ms,
+                        retrieval_strategy=decisao.strategy.value)
     conn.close()
     logger.info("Análise concluída: status=%s score=%s latência=%dms flags=%s",
                 qualidade.status, dados.get("scoring_confianca"), latencia_ms, all_flags)
