@@ -94,6 +94,22 @@ if _creditos:
     st.sidebar.metric("Saldo API", f"US$ {saldo:.2f}", delta=f"{pct:.0f}% restante")
     st.sidebar.divider()
 
+# --- Notificação de novos documentos detectados ---
+@st.cache_data(ttl=120)
+def _contar_docs_novos():
+    try:
+        resp = httpx.get(f"{API_BASE}/v1/monitor/contagem", timeout=3)
+        if resp.status_code == 200:
+            return resp.json().get("pendentes", 0)
+    except Exception:
+        pass
+    return 0
+
+_docs_novos = _contar_docs_novos()
+if _docs_novos > 0:
+    st.sidebar.warning(f"📄 {_docs_novos} documento(s) novo(s) detectado(s) nas fontes oficiais")
+    st.sidebar.divider()
+
 normas_disponiveis = _buscar_normas_disponiveis()
 
 normas_sel = st.sidebar.multiselect(
@@ -461,6 +477,76 @@ with aba2:
             st.error("Erro ao carregar lista de documentos.")
     except httpx.ConnectError:
         st.warning("API indisponível. Não foi possível carregar os documentos.")
+
+    # --- Monitor de fontes oficiais ---
+    st.divider()
+    st.subheader("Monitor de Fontes Oficiais")
+    st.caption(
+        "Verifica DOU, Planalto, CGIBS, Portal NF-e e Receita Federal "
+        "em busca de novos documentos sobre a Reforma Tributária."
+    )
+
+    if st.button("Verificar agora", type="secondary", key="btn_monitor_check"):
+        with st.spinner("Consultando fontes oficiais..."):
+            try:
+                resp_mon = httpx.post(f"{API_BASE}/v1/monitor/verificar", timeout=60)
+                if resp_mon.status_code == 200:
+                    mon_data = resp_mon.json()
+                    total_novos = mon_data.get("total_novos", 0)
+                    if total_novos > 0:
+                        st.success(f"**{total_novos}** novo(s) documento(s) detectado(s)!")
+                    else:
+                        st.info("Nenhum documento novo encontrado.")
+                    for r in mon_data.get("resultados", []):
+                        icon = "✅" if not r["erro"] else "❌"
+                        st.caption(
+                            f"{icon} **{r['fonte']}**: "
+                            f"{r['novos']} novos de {r['encontrados']} encontrados"
+                            + (f" — erro: {r['erro']}" if r["erro"] else "")
+                        )
+                    _contar_docs_novos.clear()
+                else:
+                    st.error("Erro ao verificar fontes.")
+            except httpx.ConnectError:
+                st.error("API indisponível.")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+    # Listar documentos pendentes
+    try:
+        resp_pend = httpx.get(f"{API_BASE}/v1/monitor/pendentes", timeout=10)
+        if resp_pend.status_code == 200:
+            pend_data = resp_pend.json()
+            docs_pendentes = pend_data.get("documentos", [])
+            if docs_pendentes:
+                st.markdown(f"**{len(docs_pendentes)} documento(s) aguardando sua decisao:**")
+                for doc in docs_pendentes:
+                    with st.container():
+                        col_doc, col_acoes = st.columns([4, 1])
+                        with col_doc:
+                            st.markdown(f"**{doc['titulo']}**")
+                            detalhes = f"Fonte: {doc['fonte']}"
+                            if doc.get("data_publicacao"):
+                                detalhes += f" · {doc['data_publicacao']}"
+                            st.caption(detalhes)
+                            if doc.get("resumo"):
+                                st.caption(doc["resumo"][:200])
+                            if doc.get("url"):
+                                st.markdown(f"[Abrir documento]({doc['url']})", unsafe_allow_html=True)
+                        with col_acoes:
+                            if st.button("Descartar", key=f"mon_desc_{doc['id']}", type="secondary"):
+                                try:
+                                    httpx.patch(
+                                        f"{API_BASE}/v1/monitor/documentos/{doc['id']}",
+                                        json={"status": "descartado"},
+                                        timeout=5,
+                                    )
+                                    _contar_docs_novos.clear()
+                                    st.rerun()
+                                except Exception:
+                                    st.error("Erro ao descartar.")
+    except Exception:
+        pass  # Monitor opcional — nao bloquear se falhar
 
 
 # ===========================================================================

@@ -1040,3 +1040,93 @@ async def executar_regression(req: RegressionRequest):
         "cobertura_contra_tese": result.cobertura_contra_tese,
         "detalhes": result.detalhes,
     }
+
+
+# ---------------------------------------------------------------------------
+# Monitor de fontes oficiais
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/monitor/verificar")
+async def verificar_fontes():
+    """Verifica todas as fontes ativas e detecta novos documentos."""
+    logger.info("POST /v1/monitor/verificar")
+    try:
+        from src.monitor.checker import verificar_todas_fontes
+        resultados = verificar_todas_fontes()
+    except Exception as e:
+        logger.error("Erro em /v1/monitor/verificar: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "fontes_verificadas": len(resultados),
+        "total_novos": sum(r.novos for r in resultados),
+        "resultados": [
+            {
+                "fonte": r.fonte_nome,
+                "tipo": r.fonte_tipo,
+                "novos": r.novos,
+                "encontrados": r.total_encontrados,
+                "erro": r.erro,
+            }
+            for r in resultados
+        ],
+    }
+
+
+@app.get("/v1/monitor/pendentes")
+async def listar_docs_pendentes():
+    """Lista documentos detectados aguardando revisao do usuario."""
+    logger.info("GET /v1/monitor/pendentes")
+    try:
+        from src.monitor.checker import listar_pendentes
+        docs = listar_pendentes()
+    except Exception as e:
+        logger.error("Erro em /v1/monitor/pendentes: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {
+        "total": len(docs),
+        "documentos": [
+            {
+                "id": d.id,
+                "titulo": d.titulo,
+                "url": d.url,
+                "data_publicacao": d.data_publicacao,
+                "resumo": d.resumo,
+                "fonte": d.fonte_nome,
+                "tipo": d.fonte_tipo,
+                "detectado_em": d.detectado_em,
+            }
+            for d in docs
+        ],
+    }
+
+
+@app.get("/v1/monitor/contagem")
+async def contagem_pendentes():
+    """Retorna quantidade de documentos novos pendentes."""
+    try:
+        from src.monitor.checker import contar_pendentes
+        return {"pendentes": contar_pendentes()}
+    except Exception as e:
+        return {"pendentes": 0}
+
+
+class AtualizarDocMonitorRequest(BaseModel):
+    status: str = Field(..., description="'ingerido' ou 'descartado'")
+
+
+@app.patch("/v1/monitor/documentos/{doc_id}")
+async def atualizar_doc_monitor(doc_id: int, req: AtualizarDocMonitorRequest):
+    """Atualiza status de um documento monitorado."""
+    logger.info("PATCH /v1/monitor/documentos/%d status=%s", doc_id, req.status)
+    if req.status not in ("ingerido", "descartado"):
+        raise HTTPException(status_code=422, detail="Status deve ser 'ingerido' ou 'descartado'")
+    try:
+        from src.monitor.checker import atualizar_status
+        ok = atualizar_status(doc_id, req.status)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Documento nao encontrado")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"atualizado": True, "doc_id": doc_id, "status": req.status}
