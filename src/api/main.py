@@ -1043,6 +1043,51 @@ async def executar_regression(req: RegressionRequest):
 
 
 # ---------------------------------------------------------------------------
+# Budget pressure
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/observability/budget-pressure")
+async def budget_pressure():
+    """Retorna pressão média de budget por query_tipo nos últimos 30 dias."""
+    logger.info("GET /v1/observability/budget-pressure")
+    try:
+        conn = _get_db_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                CASE
+                    WHEN context_budget_log LIKE '%%FACTUAL%%' THEN 'FACTUAL'
+                    WHEN context_budget_log LIKE '%%COMPARATIVA%%' THEN 'COMPARATIVA'
+                    WHEN context_budget_log LIKE '%%INTERPRETATIVA%%' THEN 'INTERPRETATIVA'
+                    ELSE 'OUTRO'
+                END AS query_tipo,
+                ROUND(AVG(budget_pressao_pct)::numeric, 1) AS avg_pressao,
+                ROUND(MAX(budget_pressao_pct)::numeric, 1) AS max_pressao,
+                COUNT(*) AS total_analises
+            FROM ai_interactions
+            WHERE budget_pressao_pct IS NOT NULL
+              AND created_at >= NOW() - INTERVAL '30 days'
+            GROUP BY 1
+            ORDER BY 2 DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [
+            {
+                "query_tipo": r[0],
+                "avg_pressao_pct": float(r[1]) if r[1] else 0,
+                "max_pressao_pct": float(r[2]) if r[2] else 0,
+                "total_analises": r[3],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error("Erro em budget-pressure: %s", e, exc_info=True)
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Monitor de fontes oficiais
 # ---------------------------------------------------------------------------
 

@@ -19,7 +19,8 @@ from src.quality.engine import QualidadeResult, QualidadeStatus, avaliar_qualida
 from src.rag.adaptive import classificar_query, obter_params_adaptativos
 from src.rag.corrector import CorrectorRAG
 from src.rag.decomposer import QueryDecomposer
-from src.rag.prompt_loader import carregar_secoes_prompt, gerar_context_budget_log
+from src.observability.budget_log import ContextBudgetLog, contar_tokens
+from src.rag.prompt_loader import carregar_secoes_prompt
 from src.rag.retriever import ChunkResultado, retrieve
 from src.rag.spd import (
     SPDRoutingDecision,
@@ -332,6 +333,7 @@ def _registrar_interacao(
     latencia_ms: int,
     retrieval_strategy: str = "standard",
     context_budget_log: Optional[str] = None,
+    budget_pressao_pct: Optional[float] = None,
 ) -> None:
     """Registra em ai_interactions."""
     try:
@@ -342,8 +344,8 @@ def _registrar_interacao(
                 query_texto, chunks_ids, qualidade_status, scoring_confianca,
                 grau_consolidacao, m1_existencia, m2_validade, m3_pertinencia,
                 m4_consistencia, bloqueado, prompt_version, model_id, latencia_ms,
-                retrieval_strategy, context_budget_log
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                retrieval_strategy, context_budget_log, budget_pressao_pct
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 query,
@@ -361,6 +363,7 @@ def _registrar_interacao(
                 latencia_ms,
                 retrieval_strategy,
                 context_budget_log,
+                budget_pressao_pct,
             ),
         )
         conn.commit()
@@ -592,22 +595,34 @@ def analisar(
         retrieval_strategy=decisao.strategy.value,
     )
 
-    # Gerar context_budget_log
+    # Gerar context_budget_log estruturado
+    budget_log_str = None
+    budget_pct = None
     try:
         _load_result = carregar_secoes_prompt(SYSTEM_PROMPT, qt_str, qg_str)
-        budget_log = gerar_context_budget_log(
-            prompt_version=PROMPT_VERSION,
-            query_tipo=qt_str,
-            load_result=_load_result,
-            chunks_texto=contexto,
-            overhead_texto=COT_INSTRUCTION if _precisa_cot(qualidade, dados) else "",
-        )
+        _budget = ContextBudgetLog(prompt_codigo=PROMPT_VERSION, query_tipo=qt_str)
+        for secao, tokens in _load_result.tokens_por_secao.items():
+            comp_map = {
+                "SUMMARY": "system_prompt_summary",
+                "FULL": "system_prompt_full",
+                "FULL:antialucinacao": "system_prompt_antialucinacao",
+                "ALL": "system_prompt_summary",
+            }
+            _budget.adicionar(comp_map.get(secao, "outros"), f"{PROMPT_VERSION} [{secao}]", tokens)
+        _budget.adicionar("rag_chunks", f"top-{len(chunks)} chunks", contar_tokens(contexto))
+        if _precisa_cot(qualidade, dados):
+            _budget.adicionar("cot_instruction", "chain-of-thought", contar_tokens(COT_INSTRUCTION))
+        budget_log_str = _budget.to_log_string()
+        budget_pct = round(_budget.pressao_pct, 2)
+        if _budget.alerta_pressao():
+            logger.warning("Budget pressure alert: %.1f%% usado — %s", _budget.pressao_pct, PROMPT_VERSION)
     except Exception:
-        budget_log = None
+        pass
 
     _registrar_interacao(conn, query, chunks, qualidade, anti, dados, model, latencia_ms,
                         retrieval_strategy=decisao.strategy.value,
-                        context_budget_log=budget_log)
+                        context_budget_log=budget_log_str,
+                        budget_pressao_pct=budget_pct)
     conn.close()
     logger.info("Análise concluída: status=%s score=%s latência=%dms flags=%s",
                 qualidade.status, dados.get("scoring_confianca"), latencia_ms, all_flags)

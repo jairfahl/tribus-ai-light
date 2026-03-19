@@ -1469,6 +1469,27 @@ with aba5:
 
     st.divider()
 
+    # ------ Budget de Contexto ------
+    st.subheader("Budget de Contexto — Pressão por Tipo de Query")
+    try:
+        rbp = httpx.get(f"{API_BASE}/v1/observability/budget-pressure", timeout=5)
+        if rbp.status_code == 200:
+            bp_data = rbp.json()
+            if bp_data:
+                import pandas as pd
+                df_bp = pd.DataFrame(bp_data)
+                st.dataframe(df_bp, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sem dados de budget disponíveis ainda.")
+        else:
+            st.info("Endpoint de budget não disponível.")
+    except httpx.ConnectError:
+        st.error("API offline.")
+    except Exception:
+        st.info("Dados de budget não disponíveis ainda.")
+
+    st.divider()
+
     # ------ Linha 4 — Validação automática ------
     st.subheader("Validação automática de desempenho")
     with st.form("form_regression"):
