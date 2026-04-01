@@ -1,4 +1,4 @@
-# TaxMind Light — Architecture Reference
+# Tribus-AI — Architecture Reference
 **Versão:** 1.0
 **Atualizado em:** Abril 2026
 **Mantido por:** PO (Jair)
@@ -10,7 +10,7 @@
 
 ## 1. Identidade do Projeto
 
-TaxMind Light é um sistema RAG de inteligência tributária focado na Reforma Tributária
+Tribus-AI é um sistema RAG de inteligência tributária focado na Reforma Tributária
 brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 
 **Não é:** calculadora de tributos, ERP, gerador de obrigações acessórias.
@@ -21,7 +21,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ## 2. Raiz e Estrutura do Projeto
 
 ```
-/Users/jairfahl/Downloads/taxmind-light/
+/Users/jairfahl/Downloads/tribus-ai-light/
 ├── auth.py                   ← Autenticação JWT + bcrypt
 ├── admin.py                  ← Painel admin (renderização Streamlit apenas)
 ├── ARCHITECTURE.md           ← Este arquivo

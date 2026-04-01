@@ -1,4 +1,4 @@
-# /downloads/taxmind/components/trial_banner.py
+# /downloads/tribus-ai-light/components/trial_banner.py
 """
 Banner de trial exibido no topo do app após login.
 Mostra dias restantes do período de testes de 30 dias.

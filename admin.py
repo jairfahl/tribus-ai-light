@@ -1,4 +1,4 @@
-# /Users/jairfahl/Downloads/taxmind-light/admin.py
+# /Users/jairfahl/Downloads/tribus-ai-light/admin.py
 """
 Painel de administração do Tribus-AI.
 Visível exclusivamente para usuários com perfil ADMIN.

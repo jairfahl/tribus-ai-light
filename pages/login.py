@@ -1,4 +1,4 @@
-# /downloads/taxmind/pages/login.py
+# /downloads/tribus-ai-light/pages/login.py
 """
 Tela de login do Tribus-AI.
 Exibida quando o usuário não está autenticado.
