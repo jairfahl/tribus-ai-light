@@ -23,6 +23,7 @@ from src.rag.corrector import CorrectorRAG
 from src.rag.decomposer import QueryDecomposer
 from src.observability.budget_log import ContextBudgetLog, contar_tokens
 from src.rag.prompt_loader import carregar_secoes_prompt
+from src.rag.ptf import extrair_data_referencia, is_future_scenario, resolver_regime
 from src.rag.retriever import ChunkResultado, retrieve
 from src.rag.spd import (
     SPDRoutingDecision,
@@ -493,6 +494,10 @@ def _registrar_interacao(
     retrieval_strategy: str = "standard",
     context_budget_log: Optional[str] = None,
     budget_pressao_pct: Optional[float] = None,
+    data_referencia_utilizado=None,
+    is_future_scenario_flag: bool = False,
+    chunks_pre_filtro: Optional[int] = None,
+    chunks_pos_filtro: Optional[int] = None,
 ) -> None:
     """Registra em ai_interactions."""
     try:
@@ -503,8 +508,10 @@ def _registrar_interacao(
                 query_texto, chunks_ids, qualidade_status, scoring_confianca,
                 grau_consolidacao, m1_existencia, m2_validade, m3_pertinencia,
                 m4_consistencia, bloqueado, prompt_version, model_id, latencia_ms,
-                retrieval_strategy, context_budget_log, budget_pressao_pct
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                retrieval_strategy, context_budget_log, budget_pressao_pct,
+                data_referencia_utilizado, is_future_scenario,
+                chunks_pre_filtro, chunks_pos_filtro
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 query,
@@ -523,6 +530,10 @@ def _registrar_interacao(
                 retrieval_strategy,
                 context_budget_log,
                 budget_pressao_pct,
+                data_referencia_utilizado,
+                is_future_scenario_flag,
+                chunks_pre_filtro,
+                chunks_pos_filtro,
             ),
         )
         conn.commit()
@@ -577,6 +588,13 @@ def _analisar_inner(
     casos_similares: Optional[list[dict]] = None,
 ) -> AnaliseResult:
     """Corpo interno do pipeline de análise (chamado por analisar com try/finally)."""
+    # PTF — Pre-filter Temporal: extrair data de referência da query
+    data_ref = extrair_data_referencia(query)
+    _is_future = is_future_scenario(data_ref)
+    if data_ref:
+        regime = resolver_regime(data_ref)
+        logger.info("PTF: data_ref=%s regime=%s future=%s", data_ref, regime, _is_future)
+
     # P1 — Retrieve (com parâmetros adaptativos)
     _excluir = excluir_tipos if excluir_tipos is not None else ["Outro"]
     params = obter_params_adaptativos(query, top_k_base=top_k, rerank_top_n_base=rerank_top_n)
@@ -601,7 +619,8 @@ def _analisar_inner(
     def _do_retrieve(q: str) -> list[ChunkResultado]:
         return retrieve(q, top_k=params.top_k, rerank_top_n=params.rerank_top_n,
                         norma_filter=norma_filter, excluir_tipos=_excluir,
-                        cosine_weight=params.cosine_weight, bm25_weight=params.bm25_weight)
+                        cosine_weight=params.cosine_weight, bm25_weight=params.bm25_weight,
+                        data_referencia=data_ref)
 
     if decisao.strategy == SPDStrategy.SPD:
         # SPD: retrieval per-document
@@ -613,6 +632,7 @@ def _analisar_inner(
             excluir_tipos=_excluir,
             cosine_weight=params.cosine_weight,
             bm25_weight=params.bm25_weight,
+            data_referencia=data_ref,
         )
         chunks = spd_result.chunks_merged[:params.top_k]
     elif decompose:
@@ -652,6 +672,7 @@ def _analisar_inner(
                 excluir_tipos=_excluir,
                 cosine_weight=params.cosine_weight,
                 bm25_weight=params.bm25_weight,
+                data_referencia=data_ref,
             )
             if len({c.norma_codigo for c in spd_result.chunks_merged}) > 1:
                 chunks = spd_result.chunks_merged[:params.top_k]
@@ -681,7 +702,9 @@ def _analisar_inner(
             retrieval_strategy=decisao.strategy.value,
         )
         _registrar_interacao(conn, query, chunks, qualidade, anti, {}, model, latencia_ms,
-                            retrieval_strategy=decisao.strategy.value)
+                            retrieval_strategy=decisao.strategy.value,
+                            data_referencia_utilizado=data_ref,
+                            is_future_scenario_flag=_is_future)
         return resultado
 
     # P3 — LLM + Progressive Loading
@@ -809,7 +832,9 @@ def _analisar_inner(
     _registrar_interacao(conn, query, chunks, qualidade, anti, dados, model, latencia_ms,
                         retrieval_strategy=decisao.strategy.value,
                         context_budget_log=budget_log_str,
-                        budget_pressao_pct=budget_pct)
+                        budget_pressao_pct=budget_pct,
+                        data_referencia_utilizado=data_ref,
+                        is_future_scenario_flag=_is_future)
     logger.info("Análise concluída: status=%s score=%s latência=%dms flags=%s",
                 qualidade.status, dados.get("scoring_confianca"), latencia_ms, all_flags)
 

@@ -9,6 +9,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
+from datetime import date
 from typing import Optional
 
 import psycopg2
@@ -101,6 +102,7 @@ def retrieve(
     excluir_tipos: Optional[list[str]] = None,
     cosine_weight: float = 0.7,
     bm25_weight: float = 0.3,
+    data_referencia: Optional[date] = None,
 ) -> list[ChunkResultado]:
     """
     Recupera os chunks mais relevantes para a query.
@@ -113,6 +115,8 @@ def retrieve(
         excluir_tipos: Lista de tipos de norma a excluir (ex: ["Outro"]).
         cosine_weight: Peso do score cosine no score híbrido (default 0.7).
         bm25_weight: Peso do score BM25 no score híbrido (default 0.3).
+        data_referencia: Data de referência para pre-filter temporal (PTF).
+                         Quando informada, filtra chunks cuja vigência inclua esta data.
 
     Returns:
         Lista de ChunkResultado ordenada por score_final DESC.
@@ -159,6 +163,15 @@ def retrieve(
             placeholders = ",".join(["%s"] * len(excluir_tipos))
             sql_base += f" AND n.tipo NOT IN ({placeholders})"
             params.extend(excluir_tipos)
+
+        # PTF — Pre-filter Temporal: filtra chunks por vigência antes do HNSW
+        if data_referencia is not None:
+            sql_base += (
+                " AND (c.vigencia_inicio IS NULL OR c.vigencia_inicio <= %s)"
+                " AND (c.vigencia_fim    IS NULL OR c.vigencia_fim    >= %s)"
+            )
+            params.extend([data_referencia, data_referencia])
+            logger.info("PTF: filtro temporal aplicado — data_referencia=%s", data_referencia)
 
         sql_base += " ORDER BY e.vetor <=> %s::vector LIMIT %s"
         params.extend([vetor_str, rerank_top_n])

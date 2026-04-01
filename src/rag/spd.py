@@ -12,6 +12,7 @@ import logging
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from datetime import date
 from enum import Enum
 from typing import Optional
 
@@ -119,6 +120,7 @@ def _retrieve_para_norma(
     excluir_tipos: Optional[list[str]],
     cosine_weight: float,
     bm25_weight: float,
+    data_referencia: Optional[date] = None,
 ) -> tuple[str, list[ChunkResultado]]:
     """Wrapper para retrieve() com norma_filter para uso em ThreadPoolExecutor."""
     try:
@@ -130,6 +132,7 @@ def _retrieve_para_norma(
             excluir_tipos=excluir_tipos,
             cosine_weight=cosine_weight,
             bm25_weight=bm25_weight,
+            data_referencia=data_referencia,
         )
         return norma, chunks
     except Exception as e:
@@ -145,6 +148,7 @@ def spd_retrieve(
     excluir_tipos: Optional[list[str]] = None,
     cosine_weight: float = 0.7,
     bm25_weight: float = 0.3,
+    data_referencia: Optional[date] = None,
 ) -> SPDResult:
     """
     Retrieval per-document: chama retrieve() uma vez por norma e faz merge.
@@ -170,6 +174,7 @@ def spd_retrieve(
                 _retrieve_para_norma,
                 norma, query, top_k_por_norma, rerank_top_n,
                 excluir_tipos, cosine_weight, bm25_weight,
+                data_referencia,
             ): norma
             for norma in normas
         }
