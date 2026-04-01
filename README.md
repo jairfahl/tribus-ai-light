@@ -18,11 +18,23 @@ O TaxMind Light é uma ferramenta de suporte à decisão tributária composta po
 | **Protocolo de Decisão** | Protocolo de 6 passos: registrar & classificar → estruturar riscos → análise TaxMind → posição do gestor → decidir → ciclo pós-decisão |
 | **Documentos** | Geração de documentos acionáveis (Alerta, Nota de Trabalho, Recomendação Formal, Dossiê de Decisão, Material para Compartilhamento) com visões por stakeholder |
 
+### RAG Avançado
+
+| Técnica | Ativação | Referência |
+|---------|----------|------------|
+| **Multi-Query Retrieval** | Query coloquial detectada (sem termos técnicos) | RDM-024 |
+| **Step-Back Prompting** | Alta especificidade (CNAE, NCM, regime) em queries INTERPRETATIVA/COMPARATIVA | RDM-025 |
+| **HyDE** | Score vetorial < 0.72 em queries INTERPRETATIVA | RDM-020 |
+| **Context Budget Manager** | Toda query — modo SUMMARY (FACTUAL) ou FULL (INTERPRETATIVA/COMPARATIVA) | RDM-028 |
+| **Prompt Integrity Lockfile** | Boot do engine — SHA-256 dos prompts com modo BLOCK/WARN | RDM-029 |
+
+As ferramentas RAG avançadas (Multi-Query, Step-Back, HyDE) sao mutuamente exclusivas por query, com prioridade nesta ordem.
+
 ## Stack Técnica
 
 | Componente | Tecnologia |
 |------------|------------|
-| Linguagem | Python 3.12 |
+| Linguagem | Python 3.12+ |
 | Banco de dados | PostgreSQL 16 + pgvector (Docker Compose) |
 | Embeddings | voyage-3 (1024 dim) via VoyageAI API |
 | LLM | claude-haiku-4-5 (dev) / claude-sonnet-4-6 (prod) |
@@ -30,6 +42,9 @@ O TaxMind Light é uma ferramenta de suporte à decisão tributária composta po
 | UI | Streamlit |
 | Busca vetorial | pgvector com índice HNSW (cosine, m=16, ef=64) |
 | Re-ranking | BM25 em memória (score híbrido: 0.7 cosine + 0.3 BM25) |
+| RAG avançado | Adaptive Retrieval: Multi-Query > Step-Back > HyDE |
+| Integridade | Prompt Integrity Lockfile (SHA-256, BLOCK/WARN) |
+| Budget | Context Budget Manager (SUMMARY/FULL por tipo de query) |
 
 ## Pré-requisitos
 
@@ -103,6 +118,12 @@ PostgreSQL/pgvector ──► HNSW index (1024 dim)
  retriever.py ──► busca vetorial + BM25 re-ranking + deduplicação por artigo
       │
       ▼
+ Adaptive Retrieval ──► Multi-Query | Step-Back | HyDE (mutuamente exclusivos)
+      │
+      ▼
+ Budget Manager ──► SUMMARY/FULL por tipo de query + limite de tokens/chunks
+      │
+      ▼
  engine.py (cognitivo) ──► Claude LLM com anti-alucinação (M1-M4)
       │
       ▼
@@ -148,13 +169,24 @@ taxmind-light/
 │   │   └── carimbo.py           # Detector de terceirização cognitiva
 │   ├── quality/
 │   │   └── engine.py            # DataQualityEngine (BL-01, BL-02, BL-03)
+│   ├── integrity/
+│   │   └── lockfile_manager.py  # Prompt Integrity Lockfile (RDM-029)
 │   └── rag/
 │       ├── retriever.py         # Retrieval híbrido (vetorial + BM25)
-│       └── spd.py               # SPD-RAG multi-norma
+│       ├── spd.py               # SPD-RAG multi-norma
+│       ├── adaptive.py          # Classificação de query (FACTUAL/INTERPRETATIVA/COMPARATIVA)
+│       ├── hyde.py              # HyDE — Hypothetical Document Embeddings (RDM-020)
+│       ├── multi_query.py       # Multi-Query Retrieval (RDM-024)
+│       ├── step_back.py         # Step-Back Prompting (RDM-025)
+│       ├── prompt_loader.py     # Progressive loading do system prompt
+│       ├── corrector.py         # CRAG — Corrective RAG
+│       ├── decomposer.py        # Decomposição de queries complexas
+│       ├── ptf.py               # Período Temporal Fiscal
+│       └── validacao.py         # Validação de documentos
 ├── ui/
 │   └── app.py                   # Streamlit (4 abas)
 └── tests/
-    └── unit/                    # Testes unitários (137+)
+    └── unit/                    # Testes unitários (335+)
 ```
 
 ## Protocolo de Decisão — 6 Passos

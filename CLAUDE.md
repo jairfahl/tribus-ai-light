@@ -32,7 +32,10 @@ UI            Streamlit (4 abas visíveis, Qualidade oculta em fase de testes)
 API           FastAPI (25+ endpoints)
 Auth          nenhuma (single-user local)
 RAG           híbrido: 0.7 cosine + 0.3 BM25, top_k=5, rerank_top_n=20
+RAG avançado  Adaptive Retrieval: Multi-Query > Step-Back > HyDE (mutuamente exclusivos)
 Anti-aluc.    4 mecanismos (M1-M4) em toda resposta
+Integridade   Prompt Integrity Lockfile (SHA-256, BLOCK/WARN)
+Budget        Context Budget Manager (SUMMARY/FULL por tipo de query)
 ```
 
 ## Regras Invioláveis
@@ -48,7 +51,7 @@ Anti-aluc.    4 mecanismos (M1-M4) em toda resposta
 - Logs estruturados: logging Python, nível INFO
 ```
 
-## Schema do Banco (10 tabelas)
+## Schema do Banco (14 tabelas)
 
 ```sql
 normas            -- documentos fonte (EC, LC) + file_hash para dedup
@@ -56,7 +59,8 @@ chunks            -- trechos das normas com metadados jurídicos
 embeddings        -- vetores voyage-3 (1024 dim) + índice HNSW
 consultas         -- log de buscas (Sprint 2+)
 avaliacoes        -- validação manual de qualidade
-ai_interactions   -- log de chamadas ao LLM (Sprint 2)
+ai_interactions   -- log de chamadas ao LLM (Sprint 2) + colunas RDM: lockfile_id, hyde_activated,
+                  --   multi_query_activated, query_variations_count, step_back_activated, step_back_query
 cases             -- casos protocolares, 6 passos (Sprint 3, consolidado Pós-Sprint)
 case_steps        -- dados de cada passo por caso (Sprint 3)
 case_state_history-- audit trail de transições (Sprint 3)
@@ -64,6 +68,7 @@ carimbo_alerts    -- alertas de terceirização cognitiva (Sprint 3)
 outputs           -- documentos acionáveis gerados (Sprint 4)
 stakeholder_views -- visões por público-alvo (Sprint 4)
 monitored_docs    -- documentos detectados pelo monitor de fontes (Pós-Sprint)
+prompt_lockfiles  -- lockfiles de integridade de prompts (RDM-029)
 ```
 
 ## Plano de Dev Revisado (controle de sprints)
@@ -76,6 +81,7 @@ monitored_docs    -- documentos detectados pelo monitor de fontes (Pós-Sprint)
 | 4 | Outputs Acionáveis — 5 classes + stakeholders + materialidade | ✅ Concluída |
 | 5 | Observability de IA — métricas + drift + regression testing | ✅ Concluída |
 | Pós-Sprint | UX corporativa + ingest assíncrono + delete norma + melhorias RAG | ✅ Concluída |
+| RDMs | RAG avançado (HyDE, Multi-Query, Step-Back) + Context Budget + Prompt Lockfile | ✅ Concluída |
 
 ---
 
@@ -88,6 +94,21 @@ monitored_docs    -- documentos detectados pelo monitor de fontes (Pós-Sprint)
 - [x] Sprint 5 ✅ (137/137 testes, MetricsCollector + DriftDetector 2σ + RegressionRunner + 5 endpoints + Aba 5 UI)
 - [x] Pós-Sprint ✅ (linguagem corporativa, ingest assíncrono, delete norma, dedup RAG, top_k=5, rerank_top_n=20, P6 auto-populate, validação de documentos, BL-02 sugestão)
 - [x] UX Testes ✅ (tooltips CSS em todos os campos, protocolo consolidado 6 passos, aba Qualidade oculta, hot-reload Docker, security review)
+- [x] RDM-028 ✅ Context Budget Manager (SUMMARY/FULL por tipo de query, max_tokens_contexto, max_chunks, pressão 85%)
+- [x] RDM-029 ✅ Prompt Integrity Lockfile (SHA-256, BLOCK/WARN, verificação no boot)
+- [x] RDM-020 ✅ HyDE — Hypothetical Document Embeddings (threshold score_vetorial < 0.72, INTERPRETATIVA)
+- [x] RDM-024 ✅ Multi-Query Retrieval (N=4 reformulações técnicas, queries coloquiais, ThreadPoolExecutor)
+- [x] RDM-025 ✅ Step-Back Prompting (CNAE/NCM/regime específico, retrieval duplo 60/40, INTERPRETATIVA+COMPARATIVA)
+
+## Adaptive Retrieval Tool Chain (Pipeline Cognitivo)
+
+Cadeia mutuamente exclusiva no `_analisar_inner()`:
+```
+PTF → Adaptive Params → SPD → Retrieve → CRAG →
+  Multi-Query (coloquial?) > Step-Back (alta especificidade?) > HyDE (score < 0.72?) →
+  Quality Gate → Budget Manager → LLM
+```
+Apenas uma ferramenta RAG avançada ativa por query (flag `_tool_activated`).
 
 ---
 
