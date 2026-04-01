@@ -7,9 +7,10 @@ Pipeline: RAG → QualityEngine → LLM (claude-haiku) → Anti-Alucinação →
 import json
 import logging
 import os
+import re as _re_mod
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 import anthropic
 import psycopg2
@@ -208,6 +209,130 @@ def _montar_contexto(chunks: list[ChunkResultado]) -> str:
             f"{c.texto}"
         )
     return "\n\n".join(partes)
+
+
+# ---------------------------------------------------------------------------
+# Context Budget Manager (RDM-028)
+# ---------------------------------------------------------------------------
+
+ModoContexto = Literal["SUMMARY", "FULL"]
+
+BUDGET_CONFIG: dict[str, dict] = {
+    "FACTUAL": {
+        "modo": "SUMMARY",
+        "max_tokens_contexto": 4_000,
+        "max_chunks": 5,
+    },
+    "INTERPRETATIVA": {
+        "modo": "FULL",
+        "max_tokens_contexto": 12_000,
+        "max_chunks": 10,
+    },
+    "COMPARATIVA": {
+        "modo": "FULL",
+        "max_tokens_contexto": 14_000,
+        "max_chunks": 12,
+    },
+}
+
+BUDGET_PRESSAO_THRESHOLD = 85.0
+
+
+def compactar_chunk(chunk: ChunkResultado, modo: ModoContexto) -> str:
+    """Retorna representação do chunk conforme modo de contexto.
+
+    SUMMARY: primeiras 2 sentenças + metadados.
+    FULL: chunk completo com metadados.
+    """
+    artigo_label = chunk.artigo or "artigo não identificado"
+    norma = chunk.norma_codigo
+    score = chunk.score_final
+
+    if modo == "FULL":
+        return (
+            f"[{norma} | {artigo_label} | score={score:.3f}]\n"
+            f"{chunk.texto}"
+        )
+
+    # SUMMARY: primeiras 2 sentenças
+    sentencas = _re_mod.split(r'(?<=[.!?])\s+', chunk.texto.strip())
+    resumo = " ".join(sentencas[:2])
+    return (
+        f"[RESUMO | {norma} | {artigo_label} | score={score:.3f}]\n"
+        f"{resumo}"
+    )
+
+
+@dataclass
+class ContextoBudgetResult:
+    contexto_texto: str
+    modo: str
+    chunks_utilizados: int
+    chunks_descartados: int
+    tokens_estimados: int
+    pressao_pct: float
+    budget_log: str
+
+
+def montar_contexto_budget(
+    chunks: list[ChunkResultado],
+    tipo_query: str,
+) -> ContextoBudgetResult:
+    """Monta bloco de contexto respeitando o budget do tipo de query.
+
+    Args:
+        chunks: chunks retornados pelo retriever (já filtrados pelo PTF).
+        tipo_query: 'FACTUAL' | 'INTERPRETATIVA' | 'COMPARATIVA'.
+
+    Returns:
+        ContextoBudgetResult com texto, modo, contagens e log.
+    """
+    config = BUDGET_CONFIG.get(tipo_query.upper(), BUDGET_CONFIG["INTERPRETATIVA"])
+    modo: ModoContexto = config["modo"]
+    max_tokens = config["max_tokens_contexto"]
+    max_chunks = config["max_chunks"]
+
+    blocos: list[str] = []
+    tokens_acumulados = 0
+    descartados = 0
+
+    for i, chunk in enumerate(chunks):
+        if i >= max_chunks:
+            descartados += len(chunks) - i
+            break
+
+        bloco = compactar_chunk(chunk, modo)
+        tokens_bloco = len(bloco) // 4  # 1 token ≈ 4 chars (pt técnico)
+
+        if tokens_acumulados + tokens_bloco > max_tokens:
+            descartados += len(chunks) - i
+            break
+
+        blocos.append(bloco)
+        tokens_acumulados += tokens_bloco
+
+    pressao_pct = (tokens_acumulados / max_tokens) * 100 if max_tokens else 100.0
+    contexto_texto = "\n\n---\n\n".join(blocos)
+
+    budget_log = (
+        f"tipo={tipo_query} | modo={modo} | "
+        f"chunks={len(blocos)}/{len(chunks)} | "
+        f"tokens≈{tokens_acumulados}/{max_tokens} | "
+        f"pressao={pressao_pct:.1f}%"
+    )
+
+    if pressao_pct >= BUDGET_PRESSAO_THRESHOLD:
+        logger.warning("[BUDGET WARNING] pressao=%.1f%% | %s", pressao_pct, budget_log)
+
+    return ContextoBudgetResult(
+        contexto_texto=contexto_texto,
+        modo=modo,
+        chunks_utilizados=len(blocos),
+        chunks_descartados=descartados,
+        tokens_estimados=tokens_acumulados,
+        pressao_pct=pressao_pct,
+        budget_log=budget_log,
+    )
 
 
 def _formatar_contexto_caso(contexto_caso: dict) -> str:
@@ -707,15 +832,23 @@ def _analisar_inner(
                             is_future_scenario_flag=_is_future)
         return resultado
 
-    # P3 — LLM + Progressive Loading
-    contexto = _montar_contexto(chunks)
+    # P3 — LLM + Progressive Loading + Context Budget Manager (RDM-028)
+    qt_str = query_tipo.value.upper()
+    qg_str = qualidade.status.value.upper()
+
+    ctx_budget = montar_contexto_budget(chunks, qt_str)
+    contexto = ctx_budget.contexto_texto
+    logger.info(
+        "Budget: %s modo=%s chunks=%d/%d tokens≈%d pressao=%.1f%%",
+        qt_str, ctx_budget.modo, ctx_budget.chunks_utilizados,
+        ctx_budget.chunks_utilizados + ctx_budget.chunks_descartados,
+        ctx_budget.tokens_estimados, ctx_budget.pressao_pct,
+    )
 
     # Determinar temperatura baseada em contexto inicial
     temperatura = 0.1  # análise interpretativa por padrão
 
     # Primeira chamada
-    qt_str = query_tipo.value.upper()
-    qg_str = qualidade.status.value.upper()
     dados = _chamar_llm(query, contexto, temperatura=temperatura, usar_cot=False, model=model,
                         query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
                         casos_similares=casos_similares)
@@ -805,7 +938,7 @@ def _analisar_inner(
         retrieval_strategy=decisao.strategy.value,
     )
 
-    # Gerar context_budget_log estruturado
+    # Gerar context_budget_log estruturado (inclui chunk budget RDM-028)
     budget_log_str = None
     budget_pct = None
     try:
@@ -819,10 +952,14 @@ def _analisar_inner(
                 "ALL": "system_prompt_summary",
             }
             _budget.adicionar(comp_map.get(secao, "outros"), f"{PROMPT_VERSION} [{secao}]", tokens)
-        _budget.adicionar("rag_chunks", f"top-{len(chunks)} chunks", contar_tokens(contexto))
+        _budget.adicionar(
+            "rag_chunks",
+            f"top-{ctx_budget.chunks_utilizados} chunks modo={ctx_budget.modo}",
+            contar_tokens(contexto),
+        )
         if _precisa_cot(qualidade, dados):
             _budget.adicionar("cot_instruction", "chain-of-thought", contar_tokens(COT_INSTRUCTION))
-        budget_log_str = _budget.to_log_string()
+        budget_log_str = _budget.to_log_string() + f"\n  [CHUNK_BUDGET] {ctx_budget.budget_log}"
         budget_pct = round(_budget.pressao_pct, 2)
         if _budget.alerta_pressao():
             logger.warning("Budget pressure alert: %.1f%% usado — %s", _budget.pressao_pct, PROMPT_VERSION)
