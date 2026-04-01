@@ -1,10 +1,10 @@
-# TaxMind Light
+# Tribus-AI
 
 Sistema de análise tributária com RAG e protocolo de decisão para a Reforma Tributária brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 
-## O que é o TaxMind Light?
+## O que é o Tribus-AI?
 
-O TaxMind Light é uma ferramenta de suporte à decisão tributária composta por dois modos de uso:
+O Tribus-AI é uma ferramenta de suporte à decisão tributária composta por dois modos de uso:
 
 - **Consulta rápida** — perguntas pontuais sobre a Reforma Tributária, respondidas com fundamentação legal via RAG
 - **Protocolo de Decisão (6 passos)** — processo estruturado para análise, recomendação e decisão sobre cenários tributários complexos
@@ -15,8 +15,9 @@ O TaxMind Light é uma ferramenta de suporte à decisão tributária composta po
 |-----|--------|
 | **Consultar** | Consulta rápida à base de conhecimento com indicadores de qualidade, fundamentação legal e ação recomendada |
 | **Adicionar Norma** | Upload de PDFs (INs, Resoluções, Pareceres), detecção de duplicidade por hash MD5, ingestão assíncrona, listagem e exclusão de documentos, monitor de fontes oficiais |
-| **Protocolo de Decisão** | Protocolo de 6 passos: registrar & classificar → estruturar riscos → análise TaxMind → posição do gestor → decidir → ciclo pós-decisão |
+| **Protocolo de Decisão** | Protocolo de 6 passos: registrar & classificar → estruturar riscos → análise Tribus-AI → posição do gestor → decidir → ciclo pós-decisão |
 | **Documentos** | Geração de documentos acionáveis (Alerta, Nota de Trabalho, Recomendação Formal, Dossiê de Decisão, Material para Compartilhamento) com visões por stakeholder |
+| **⚙️ Admin** | Painel de gestão de usuários (ADMIN): criar/ativar/desativar usuários, redefinir senhas, monitorar consumo de API com estimativa de custo em USD |
 
 ### RAG Avançado
 
@@ -37,7 +38,9 @@ As ferramentas RAG avançadas (Multi-Query, Step-Back, HyDE) sao mutuamente excl
 | Linguagem | Python 3.12+ |
 | Banco de dados | PostgreSQL 16 + pgvector (Docker Compose) |
 | Embeddings | voyage-3 (1024 dim) via VoyageAI API |
-| LLM | claude-haiku-4-5 (dev) / claude-sonnet-4-6 (prod) |
+| LLM | claude-sonnet-4-6 |
+| Autenticação | JWT (HS256, 8h) + bcrypt rounds=12 |
+| Perfis | ADMIN (visão global) / USER (isolamento de tenant) |
 | API | FastAPI (uvicorn) |
 | UI | Streamlit |
 | Busca vetorial | pgvector com índice HNSW (cosine, m=16, ef=64) |
@@ -82,10 +85,21 @@ Acesse `http://localhost:8521` no navegador.
 python src/ingest/run_ingest.py
 ```
 
-### 4. Rodar os testes
+### 4. Executar migration do módulo Admin
 
 ```bash
-pytest tests/unit/ -v
+docker exec -i tribus-ai-db \
+    psql -U taxmind -d taxmind_db \
+    < migrations/100_users_table.sql
+# Admin padrão: admin@tribus-ai.com.br
+# Trocar senha no primeiro acesso via painel ⚙️ Admin
+```
+
+### 5. Rodar os testes
+
+```bash
+.venv/bin/python -m pytest tests/ -v --tb=short
+# 354 testes passando
 ```
 
 ### Comandos úteis
@@ -133,7 +147,7 @@ PostgreSQL/pgvector ──► HNSW index (1024 dim)
 ## Estrutura de Pastas
 
 ```
-taxmind-light/
+tribus-ai-light/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env
@@ -183,10 +197,19 @@ taxmind-light/
 │       ├── decomposer.py        # Decomposição de queries complexas
 │       ├── ptf.py               # Período Temporal Fiscal
 │       └── validacao.py         # Validação de documentos
+├── auth.py                      # Autenticação JWT + bcrypt + trial
+├── admin.py                     # Painel admin (Streamlit)
+├── pages/
+│   └── login.py                 # Tela de login
+├── components/
+│   └── trial_banner.py          # Banner de trial (30 dias)
+├── migrations/
+│   └── 100_users_table.sql      # Tabela users + user_id em ai_interactions
 ├── ui/
-│   └── app.py                   # Streamlit (4 abas)
+│   └── app.py                   # Streamlit (5 abas: + ⚙️ Admin para ADMIN)
 └── tests/
-    └── unit/                    # Testes unitários (335+)
+    ├── unit/                    # Testes unitários
+    └── test_auth.py             # 19 testes de autenticação (354 total)
 ```
 
 ## Protocolo de Decisão — 6 Passos
@@ -195,9 +218,9 @@ taxmind-light/
 |-------|------|-------------|
 | 1 | Registrar & Classificar | Usuário |
 | 2 | Estruturar riscos e dados | Usuário |
-| 3 | Análise tributária | TaxMind (RAG + LLM) |
+| 3 | Análise tributária | Tribus-AI (RAG + LLM) |
 | 4 | Posição do gestor (hipótese) | Usuário |
-| 5 | Decidir | Usuário (com recomendação TaxMind) |
+| 5 | Decidir | Usuário (com recomendação Tribus-AI) |
 | 6 | Ciclo Pós-Decisão | Usuário |
 
 ## API — Principais Endpoints
@@ -245,3 +268,15 @@ taxmind-light/
 - Índice HNSW obrigatório
 - Testes unitários nunca fazem chamadas externas (mocks obrigatórios)
 - Anti-alucinação: 4 mecanismos (M1-M4) em toda resposta do LLM
+- Secrets via variável de ambiente — nunca hardcoded
+- Toda query de USER em `ai_interactions` filtrada por `user_id` (isolamento de tenant)
+
+## Autenticação
+
+| Campo | Detalhe |
+|-------|---------|
+| Perfis | `ADMIN` (visão global) / `USER` (isolamento de tenant) |
+| Autenticação | JWT HS256, expiração 8h |
+| Senhas | bcrypt rounds=12 |
+| Trial | 30 dias a partir do primeiro login (`primeiro_uso`) |
+| Admin padrão | admin@tribus-ai.com.br — trocar senha no primeiro acesso |

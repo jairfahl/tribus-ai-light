@@ -16,7 +16,7 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 HEADERS = {
-    "User-Agent": "TaxMind-Monitor/1.0 (legislacao tributaria; contato@empresa.com)",
+    "User-Agent": "Tribus-AI-Monitor/1.0 (legislacao tributaria; contato@empresa.com)",
     "Accept": "text/html,application/xhtml+xml",
     "Accept-Language": "pt-BR,pt;q=0.9",
 }

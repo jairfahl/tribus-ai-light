@@ -98,7 +98,7 @@ def inserir_chunks(conn: psycopg2.extensions.connection, norma_id: int, chunks) 
 
 
 def main() -> None:
-    logger.info("=== TaxMind Light — Ingestão Sprint 1 ===")
+    logger.info("=== Tribus-AI — Ingestão Sprint 1 ===")
     t_total_inicio = time.time()
 
     conn = conectar_banco()

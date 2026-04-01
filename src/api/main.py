@@ -1,5 +1,5 @@
 """
-api/main.py — FastAPI: 18 endpoints do motor cognitivo TaxMind Light.
+api/main.py — FastAPI: 18 endpoints do motor cognitivo Tribus-AI.
 
 POST /v1/analyze                                  — análise tributária completa
 GET  /v1/chunks                                   — busca RAG direta
@@ -66,7 +66,7 @@ class JobStatus(str, Enum):
 _ingest_jobs: dict[str, dict] = {}
 
 app = FastAPI(
-    title="TaxMind Light API",
+    title="Tribus-AI API",
     description="Motor cognitivo para análise da Reforma Tributária brasileira",
     version="2.0.0",
 )
@@ -95,6 +95,7 @@ class AnalyzeRequest(BaseModel):
     model: str = Field(MODEL_DEV)
     decompose: bool = Field(False, description="Ativar decomposição de sub-perguntas para queries complexas")
     case_id: Optional[int] = Field(None, description="ID do caso (steps 1→6) para injetar contexto dos passos anteriores")
+    user_id: Optional[str] = Field(None, description="UUID do usuário autenticado (tenant isolation)")
 
 
 # --- Serialização de AnaliseResult para dict ---
@@ -306,6 +307,7 @@ def analyze(req: AnalyzeRequest):
             decompose=req.decompose,
             contexto_caso=contexto_caso,
             casos_similares=casos_similares,
+            user_id=req.user_id,
         )
     except Exception as e:
         logger.error("Erro interno em /v1/analyze: %s", e, exc_info=True)
@@ -892,6 +894,7 @@ class GerarOutputRequest(BaseModel):
     output_base_id: Optional[int] = None
     # Para C2/C3 — modelo a usar na análise
     model: str = Field(MODEL_DEV)
+    user_id: Optional[str] = Field(None, description="UUID do usuário autenticado (tenant isolation)")
 
 
 class AprovarOutputRequest(BaseModel):
@@ -974,7 +977,7 @@ def gerar_output(req: GerarOutputRequest):
         elif classe == OutputClass.NOTA_TRABALHO:
             if not req.query:
                 raise HTTPException(status_code=422, detail="C2 requer query")
-            analise = analisar(query=req.query, top_k=3, model=req.model)
+            analise = analisar(query=req.query, top_k=3, model=req.model, user_id=req.user_id)
             result = _output_engine.gerar_nota_trabalho(
                 case_id=req.case_id,
                 analise_result=analise,
@@ -984,7 +987,7 @@ def gerar_output(req: GerarOutputRequest):
         elif classe == OutputClass.RECOMENDACAO_FORMAL:
             if not req.query:
                 raise HTTPException(status_code=422, detail="C3 requer query")
-            analise = analisar(query=req.query, top_k=3, model=req.model)
+            analise = analisar(query=req.query, top_k=3, model=req.model, user_id=req.user_id)
             result = _output_engine.gerar_recomendacao_formal(
                 case_id=req.case_id,
                 analise_result=analise,
