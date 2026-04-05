@@ -52,6 +52,12 @@ st.set_page_config(
     layout="wide",
 )
 
+# ─── AUTH CONFIG ──────────────────────────────────────────────────────────────
+# BYPASS_AUTH = True  → período de testes (sem login)
+# BYPASS_AUTH = False → produção (login obrigatório)
+# Para reativar o login: alterar para False e reiniciar o app.
+BYPASS_AUTH = True
+
 # ─── IMPORTS DO MÓDULO ADMIN ──────────────────────────────────────────────────
 from pages.login import render_login, sessao_valida
 from components.trial_banner import render_trial_banner, render_header_com_logout
@@ -60,6 +66,18 @@ from components.trial_banner import render_trial_banner, render_header_com_logou
 # ─── GUARD DE SESSÃO ─────────────────────────────────────────────────────────
 def _verificar_autenticacao():
     """Guard de sessão: redireciona para login se não autenticado."""
+    if BYPASS_AUTH:
+        # Modo teste: injetar sessão anônima sem autenticação
+        if "user_id" not in st.session_state:
+            st.session_state["auth_token"]    = "bypass-test-token"
+            st.session_state["user_id"]       = "00000000-0000-0000-0000-000000000000"
+            st.session_state["user_nome"]     = "Usuário Teste"
+            st.session_state["user_email"]    = "teste@tribus-ai.com.br"
+            st.session_state["user_perfil"]   = "USER"
+            st.session_state["user_is_admin"] = False
+            st.session_state["primeiro_uso"]  = None
+        return  # pula o guard completamente
+
     if not sessao_valida():
         render_login()
         st.stop()
@@ -67,8 +85,10 @@ def _verificar_autenticacao():
 _verificar_autenticacao()
 
 # ─── HEADER ───────────────────────────────────────────────────────────────────
-render_header_com_logout()
-render_trial_banner()
+# Header e banner apenas em modo produção
+if not BYPASS_AUTH:
+    render_header_com_logout()
+    render_trial_banner()
 
 # ────────────────────────────────────────────────────────────────────────────────
 
