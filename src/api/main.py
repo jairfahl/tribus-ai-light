@@ -21,6 +21,7 @@ GET  /v1/observability/drift                      — drift alerts ativos
 POST /v1/observability/drift/{alert_id}/resolver  — resolver drift alert
 POST /v1/observability/baseline                   — registrar baseline
 POST /v1/observability/regression                 — executar regression testing
+GET  /v1/billing/mau                              — MAU por tenant/mês (metering)
 """
 
 import hashlib
@@ -29,6 +30,7 @@ import os
 import re
 import tempfile
 import uuid
+from datetime import date
 from enum import Enum
 from pathlib import Path
 from typing import Optional
@@ -1322,6 +1324,63 @@ def verificar_fontes():
             }
             for r in resultados
         ],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Billing — MAU (Monthly Active Users)
+# ---------------------------------------------------------------------------
+
+@app.get("/v1/billing/mau")
+def get_mau(
+    tenant_id: str,
+    month: Optional[str] = None,  # formato: "2026-04" — se omitido, usa mês corrente
+):
+    """
+    Retorna o total de usuários ativos (MAU) de um tenant em um mês.
+
+    Parâmetros:
+        tenant_id: UUID do tenant
+        month: mês no formato YYYY-MM (opcional, default: mês corrente)
+
+    Retorno:
+        {"tenant_id": "uuid", "month": "2026-04", "active_users": 3, "active_month_start": "2026-04-01"}
+    """
+    logger.info("GET /v1/billing/mau tenant_id=%s month=%s", tenant_id, month)
+
+    if month:
+        try:
+            year, mon = map(int, month.split("-"))
+            active_month = date(year, mon, 1)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=400, detail="Formato de month inválido. Use YYYY-MM.")
+    else:
+        active_month = date.today().replace(day=1)
+
+    sql = """
+        SELECT COUNT(DISTINCT user_id) AS active_users
+        FROM mau_records
+        WHERE tenant_id = %s
+          AND active_month = %s;
+    """
+
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (tenant_id, active_month))
+            row = cur.fetchone()
+            active_users = row[0] if row else 0
+    except Exception as e:
+        logger.error("Erro em /v1/billing/mau: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Erro ao consultar MAU: {str(e)}")
+    finally:
+        put_conn(conn)
+
+    return {
+        "tenant_id": tenant_id,
+        "month": active_month.strftime("%Y-%m"),
+        "active_users": active_users,
+        "active_month_start": active_month.isoformat(),
     }
 
 
