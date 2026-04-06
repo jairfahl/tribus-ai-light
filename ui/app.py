@@ -84,6 +84,24 @@ def _verificar_autenticacao():
 
 _verificar_autenticacao()
 
+# ─── CONTROLE DE ACESSO POR BILLING ───────────────────────────────────────────
+# Ativo apenas em modo produção (BYPASS_AUTH=False)
+if not BYPASS_AUTH:
+    from src.billing.access import tenant_tem_acesso, dias_restantes_trial
+    _tenant = st.session_state.get("tenant", {})
+    _tem_acesso, _motivo = tenant_tem_acesso(_tenant)
+    if not _tem_acesso:
+        st.error({
+            "trial_expired":  "Seu período de teste encerrou. Assine um plano para continuar.",
+            "payment_failed": "Houve um problema com seu pagamento. Verifique e tente novamente.",
+            "canceled":       "Sua assinatura foi cancelada. Entre em contato para reativar.",
+        }.get(_motivo, "Acesso não autorizado."))
+        st.markdown("[Falar com suporte](mailto:suporte@tribus-ai.com.br)")
+        st.stop()
+    _dias = dias_restantes_trial(_tenant)
+    if _dias is not None and _dias <= 7:
+        st.warning(f"⚠️ Seu trial encerra em {_dias} dia(s). Assine agora para não perder o acesso.")
+
 # ─── HEADER ───────────────────────────────────────────────────────────────────
 # Header e banner apenas em modo produção
 if not BYPASS_AUTH:

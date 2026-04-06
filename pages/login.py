@@ -78,6 +78,31 @@ def render_login() -> bool:
             st.session_state["primeiro_uso"]  = usuario.primeiro_uso
             st.session_state["tenant_id"]     = usuario.tenant_id
 
+            # Carregar dados do tenant para controle de acesso (billing)
+            tenant_data = {}
+            if usuario.tenant_id:
+                try:
+                    conn_t = psycopg2.connect(_DATABASE_URL)
+                    try:
+                        with conn_t.cursor() as cur:
+                            cur.execute(
+                                """SELECT id, subscription_status, trial_ends_at
+                                   FROM tenants WHERE id = %s LIMIT 1""",
+                                (usuario.tenant_id,)
+                            )
+                            row = cur.fetchone()
+                            if row:
+                                tenant_data = {
+                                    "id": str(row[0]),
+                                    "subscription_status": row[1],
+                                    "trial_ends_at": row[2],
+                                }
+                    finally:
+                        conn_t.close()
+                except Exception:
+                    pass
+            st.session_state["tenant"] = tenant_data
+
             # Registrar MAU — idempotente, nunca bloqueia o login
             try:
                 if usuario.tenant_id:
@@ -104,7 +129,7 @@ def logout() -> None:
     """
     keys_to_clear = [
         "auth_token", "user_id", "user_nome",
-        "user_email", "user_perfil", "user_is_admin", "primeiro_uso", "tenant_id",
+        "user_email", "user_perfil", "user_is_admin", "primeiro_uso", "tenant_id", "tenant",
     ]
     for key in keys_to_clear:
         st.session_state.pop(key, None)

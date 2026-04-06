@@ -22,6 +22,7 @@ POST /v1/observability/drift/{alert_id}/resolver  — resolver drift alert
 POST /v1/observability/baseline                   — registrar baseline
 POST /v1/observability/regression                 — executar regression testing
 GET  /v1/billing/mau                              — MAU por tenant/mês (metering)
+POST /v1/webhooks/asaas                           — webhook de billing Asaas
 """
 
 import hashlib
@@ -39,7 +40,7 @@ import psycopg2
 from dotenv import load_dotenv
 
 from src.db.pool import get_conn, put_conn
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -1382,6 +1383,67 @@ def get_mau(
         "active_users": active_users,
         "active_month_start": active_month.isoformat(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Billing — Webhook Asaas
+# ---------------------------------------------------------------------------
+
+ASAAS_WEBHOOK_TOKEN = os.getenv("ASAAS_WEBHOOK_TOKEN", "")
+
+# Mapeamento de eventos Asaas → subscription_status interno
+_ASAAS_STATUS_MAP = {
+    "PAYMENT_RECEIVED":         "active",
+    "PAYMENT_CONFIRMED":        "active",
+    "PAYMENT_OVERDUE":          "past_due",
+    "PAYMENT_DELETED":          "past_due",
+    "SUBSCRIPTION_INACTIVATED": "canceled",
+}
+
+
+@app.post("/v1/webhooks/asaas")
+async def asaas_webhook(request: Request):
+    """
+    Recebe eventos de billing do Asaas e atualiza subscription_status do tenant.
+    Autenticação: token fixo no header asaas-access-token.
+    Eventos: PAYMENT_RECEIVED, PAYMENT_CONFIRMED, PAYMENT_OVERDUE,
+             PAYMENT_DELETED, SUBSCRIPTION_INACTIVATED.
+    """
+    token = request.headers.get("asaas-access-token", "")
+    if token != ASAAS_WEBHOOK_TOKEN:
+        logger.warning("Webhook Asaas: token inválido recebido.")
+        raise HTTPException(status_code=401, detail="Token inválido.")
+
+    payload = await request.json()
+    evento       = payload.get("event", "")
+    payment      = payload.get("payment", {})
+    external_ref = payment.get("externalReference")  # nosso tenant_id
+
+    logger.info("Webhook Asaas recebido: evento=%s tenant=%s", evento, external_ref)
+
+    novo_status = _ASAAS_STATUS_MAP.get(evento)
+    if not novo_status or not external_ref:
+        return {"received": True}
+
+    sql = """
+        UPDATE tenants
+        SET subscription_status = %s,
+            updated_at = NOW()
+        WHERE id = %s;
+    """
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (novo_status, external_ref))
+        conn.commit()
+        logger.info("Tenant %s → subscription_status='%s' via webhook Asaas.", external_ref, novo_status)
+    except Exception as e:
+        logger.error("Erro ao atualizar tenant via webhook: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno.")
+    finally:
+        put_conn(conn)
+
+    return {"received": True}
 
 
 @app.get("/v1/monitor/pendentes")
