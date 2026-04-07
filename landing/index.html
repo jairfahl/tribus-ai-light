@@ -123,12 +123,8 @@
     .logo {
       display: flex;
       align-items: center;
-      gap: 10px;
-      font-weight: 700;
-      font-size: 1.25rem;
-      color: var(--azul-escuro);
     }
-    .logo svg { flex-shrink: 0; }
+    .logo img { height: 36px; width: auto; display: block; }
     .nav-links {
       display: flex;
       align-items: center;
@@ -575,13 +571,7 @@
   <div class="container">
     <div class="nav-inner">
       <a href="#" class="logo">
-        <svg width="32" height="32" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect width="32" height="32" rx="8" fill="#2E75B6"/>
-          <path d="M8 10h16M8 16h10M8 22h13" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
-          <circle cx="24" cy="22" r="4" fill="#F59E0B"/>
-          <path d="M22.5 22l1 1 2-2" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        Tribus-AI
+        <img src="assets/logo.png" alt="Tribus-AI" style="height:36px;width:auto;">
       </a>
       <ul class="nav-links">
         <li><a href="#problema">O Problema</a></li>
@@ -590,7 +580,7 @@
         <li><a href="#precos">Planos</a></li>
       </ul>
       <div class="nav-cta">
-        <a href="#" class="btn btn-outline" style="padding:10px 20px;font-size:.9rem;">Entrar</a>
+        <a href="/app" class="btn btn-outline" style="padding:10px 20px;font-size:.9rem;">Entrar</a>
         <a href="#" class="btn btn-primary" style="padding:10px 20px;font-size:.9rem;">Trial gratuito</a>
       </div>
       <button class="nav-mobile-toggle" id="menuBtn" aria-label="Menu">
