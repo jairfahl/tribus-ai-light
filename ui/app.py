@@ -18,6 +18,7 @@ from ui.components.grau_consolidacao import exibir_painel_governanca
 from ui.components.qualificacao_fatica import coletar_qualificacao_fatica
 from ui.pages.simulador_carga import render_simulador_carga
 from ui.pages.simulador_split_payment import render_simulador_split_payment
+from ui.pages.monitor_creditos import render_monitor_creditos
 
 load_dotenv()
 
@@ -2155,11 +2156,13 @@ if False:  # noqa: Aba oculta durante fase de testes com usuários
 # ABA 5 — Simuladores (MP-01 Carga RT + MP-05 Split Payment)
 # ===========================================================================
 with aba5:
-    sim_tab1, sim_tab2 = st.tabs(["Carga RT", "Split Payment"])
+    sim_tab1, sim_tab2, sim_tab3 = st.tabs(["Carga RT", "Split Payment", "Créditos IBS/CBS"])
     with sim_tab1:
         render_simulador_carga()
     with sim_tab2:
         render_simulador_split_payment()
+    with sim_tab3:
+        render_monitor_creditos()
 
 # ===========================================================================
 # ABA ADMIN — Painel de Gerenciamento de Usuários (apenas ADMIN)
