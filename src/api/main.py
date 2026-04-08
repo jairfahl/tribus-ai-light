@@ -130,6 +130,8 @@ class AnalyzeRequest(BaseModel):
     user_id: Optional[str] = Field(None, description="UUID do usuário autenticado (tenant isolation)")
     metodos_selecionados: list[str] = Field([], description="IDs dos métodos de análise selecionados no P1 (máx. 4)")
     criticidade: str = Field("media", description="Nível de criticidade do caso: baixa | media | alta | extrema")
+    premissas: list[str] = Field([], description="Premissas regulatórias declaradas no P2 (mín. 3)")
+    riscos_fiscais: list[str] = Field([], description="Riscos fiscais declarados no P2 (mín. 3)")
 
 
 # --- Serialização de AnaliseResult para dict ---
@@ -345,6 +347,8 @@ def analyze(request: Request, req: AnalyzeRequest):
             user_id=req.user_id,
             metodos_selecionados=req.metodos_selecionados,
             criticidade=req.criticidade,
+            premissas=req.premissas,
+            riscos_fiscais=req.riscos_fiscais,
         )
     except Exception as e:
         logger.error("Erro interno em /v1/analyze: %s", e, exc_info=True)

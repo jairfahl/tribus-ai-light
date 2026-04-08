@@ -515,6 +515,8 @@ def _chamar_llm(
     contexto_caso: Optional[dict] = None,
     casos_similares: Optional[list[dict]] = None,
     metodos_selecionados: Optional[list[str]] = None,
+    premissas: Optional[list[str]] = None,
+    riscos_fiscais: Optional[list[str]] = None,
     _escalated: bool = False,
 ) -> dict:
     """Chama o LLM e retorna o JSON parseado.
@@ -538,11 +540,29 @@ def _chamar_llm(
     metodos_str = formatar_metodos_para_prompt(metodos_selecionados or [])
     metodos_bloco = f"\n\n{metodos_str}" if metodos_str else ""
 
+    premissas_bloco = ""
+    if premissas:
+        premissas_bloco = (
+            "\n\nPREMISSAS REGULATÓRIAS DECLARADAS PELO GESTOR:\n"
+            + "\n".join(f"- {p}" for p in premissas)
+            + "\n(Analise à luz dessas premissas. Indique se alguma é contestável ou incorreta.)"
+        )
+
+    riscos_bloco = ""
+    if riscos_fiscais:
+        riscos_bloco = (
+            "\n\nRISCOS FISCAIS DECLARADOS PELO GESTOR:\n"
+            + "\n".join(f"- {r}" for r in riscos_fiscais)
+            + "\n(Avalie se esses riscos se materializam no caso e se há riscos adicionais não declarados.)"
+        )
+
     user_msg = (
         f"TRECHOS LEGISLATIVOS RECUPERADOS:\n{contexto}\n\n"
         f"CONSULTA: {query}"
         f"{caso_str}"
         f"{similares_str}"
+        f"{premissas_bloco}"
+        f"{riscos_bloco}"
         f"{metodos_bloco}\n\n"
         "Responda APENAS com o JSON especificado."
     )
@@ -589,6 +609,8 @@ def _chamar_llm(
                 contexto_caso=contexto_caso,
                 casos_similares=casos_similares,
                 metodos_selecionados=metodos_selecionados,
+                premissas=premissas,
+                riscos_fiscais=riscos_fiscais,
                 _escalated=True,
             )
         raise RuntimeError(
@@ -701,6 +723,8 @@ def _registrar_interacao(
     step_back_activated: bool = False,
     step_back_query: Optional[str] = None,
     user_id: Optional[str] = None,
+    premissas: Optional[list[str]] = None,
+    riscos_fiscais: Optional[list[str]] = None,
 ) -> None:
     """Registra em ai_interactions."""
     # Opção A: UUID de bypass (BYPASS_AUTH) não existe em users — gravar NULL
@@ -709,6 +733,9 @@ def _registrar_interacao(
         user_id = None
     try:
         cur = conn.cursor()
+        _premissas_pg = premissas or []
+        _riscos_pg = riscos_fiscais or []
+        _p2_concluido = len(_premissas_pg) >= 3 and len(_riscos_pg) >= 3
         cur.execute(
             """
             INSERT INTO ai_interactions (
@@ -719,8 +746,9 @@ def _registrar_interacao(
                 data_referencia_utilizado, is_future_scenario,
                 chunks_pre_filtro, chunks_pos_filtro, lockfile_id,
                 hyde_activated, multi_query_activated, query_variations_count,
-                step_back_activated, step_back_query, user_id
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                step_back_activated, step_back_query, user_id,
+                premissas, riscos_fiscais, p2_concluido
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 query,
@@ -750,6 +778,9 @@ def _registrar_interacao(
                 step_back_activated,
                 step_back_query,
                 user_id,
+                _premissas_pg,
+                _riscos_pg,
+                _p2_concluido,
             ),
         )
         conn.commit()
@@ -771,6 +802,8 @@ def analisar(
     user_id: Optional[str] = None,
     metodos_selecionados: Optional[list[str]] = None,
     criticidade: str = "media",
+    premissas: Optional[list[str]] = None,
+    riscos_fiscais: Optional[list[str]] = None,
 ) -> AnaliseResult:
     """
     Pipeline completo de análise tributária (6 Passos).
@@ -789,7 +822,9 @@ def analisar(
         return _analisar_inner(conn, query, top_k, rerank_top_n, norma_filter,
                                excluir_tipos, model, decompose, t0, contexto_caso,
                                casos_similares, user_id,
-                               metodos_selecionados=metodos_selecionados)
+                               metodos_selecionados=metodos_selecionados,
+                               premissas=premissas,
+                               riscos_fiscais=riscos_fiscais)
     finally:
         put_conn(conn)
 
@@ -808,6 +843,8 @@ def _analisar_inner(
     casos_similares: Optional[list[dict]] = None,
     user_id: Optional[str] = None,
     metodos_selecionados: Optional[list[str]] = None,
+    premissas: Optional[list[str]] = None,
+    riscos_fiscais: Optional[list[str]] = None,
 ) -> AnaliseResult:
     """Corpo interno do pipeline de análise (chamado por analisar com try/finally)."""
     # PTF — Pre-filter Temporal: extrair data de referência da query
@@ -1005,7 +1042,9 @@ def _analisar_inner(
                             query_variations_count=_query_variations_count,
                             step_back_activated=_step_back_activated,
                             step_back_query=_step_back_query_text,
-                            user_id=user_id)
+                            user_id=user_id,
+                            premissas=premissas,
+                            riscos_fiscais=riscos_fiscais)
         return resultado
 
     # P3 — LLM + Progressive Loading + Context Budget Manager (RDM-028)
@@ -1028,7 +1067,8 @@ def _analisar_inner(
     dados = _chamar_llm(query, contexto, temperatura=temperatura, usar_cot=False, model=model,
                         query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
                         casos_similares=casos_similares,
-                        metodos_selecionados=metodos_selecionados)
+                        metodos_selecionados=metodos_selecionados,
+                        premissas=premissas, riscos_fiscais=riscos_fiscais)
 
     # Ativar CoT se necessário e re-chamar
     if _precisa_cot(qualidade, dados):
@@ -1036,7 +1076,8 @@ def _analisar_inner(
         dados = _chamar_llm(query, contexto, temperatura=0.3, usar_cot=True, model=model,
                             query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
                             casos_similares=casos_similares,
-                            metodos_selecionados=metodos_selecionados)
+                            metodos_selecionados=metodos_selecionados,
+                            premissas=premissas, riscos_fiscais=riscos_fiscais)
 
     # P4 — Anti-alucinação
     anti = AntiAlucinacaoResult()
@@ -1067,6 +1108,7 @@ def _analisar_inner(
             query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
             casos_similares=casos_similares,
             metodos_selecionados=metodos_selecionados,
+            premissas=premissas, riscos_fiscais=riscos_fiscais,
         )
         m4_ok2, m4_flags2 = _verificar_m4_consistencia(dados_corrigido)
         if m4_ok2:
@@ -1157,7 +1199,9 @@ def _analisar_inner(
                         is_future_scenario_flag=_is_future,
                         lockfile_id=_lockfile_id_ativo,
                         hyde_activated=_hyde_activated,
-                        user_id=user_id)
+                        user_id=user_id,
+                        premissas=premissas,
+                        riscos_fiscais=riscos_fiscais)
     logger.info("Análise concluída: status=%s score=%s latência=%dms flags=%s",
                 qualidade.status, dados.get("scoring_confianca"), latencia_ms, all_flags)
 

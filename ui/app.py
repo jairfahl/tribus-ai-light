@@ -1063,11 +1063,15 @@ with aba3:
                     else:
                         with st.spinner("Analisando..."):
                             try:
-                                # Ler métodos e criticidade salvos no Passo 1
+                                # Ler dados salvos do P1 e P2
                                 _p1_entry = _steps_data.get(1) or _steps_data.get("1") or {}
                                 _p1_dados = _p1_entry.get("dados") or {}
                                 _metodos_p1 = _p1_dados.get("metodos_selecionados", [])
                                 _criticidade_p1 = _p1_dados.get("criticidade", "media")
+                                _premissas_p1 = _p1_dados.get("premissas", [])
+                                _p2_entry = _steps_data.get(2) or _steps_data.get("2") or {}
+                                _p2_dados = _p2_entry.get("dados") or {}
+                                _riscos_p2 = _p2_dados.get("riscos", [])
                                 resp = _api_post(
                                     f"{API_BASE}/v1/analyze",
                                     json={
@@ -1077,6 +1081,8 @@ with aba3:
                                         "user_id": st.session_state.get("user_id"),
                                         "metodos_selecionados": _metodos_p1,
                                         "criticidade": _criticidade_p1,
+                                        "premissas": _premissas_p1,
+                                        "riscos_fiscais": _riscos_p2,
                                     },
                                     timeout=60.0,
                                 )
@@ -1131,14 +1137,38 @@ with aba3:
                         dados_passo["descricao"] = st.text_area("Descreva o problema", value=step_dados_salvos.get("descricao", ""), label_visibility="collapsed")
                         _lbl("Situação atual da empresa", "Regime tributário, porte, setor de atuação e outras informações relevantes sobre a empresa.")
                         dados_passo["contexto_fiscal"] = st.text_input("Situação atual", value=step_dados_salvos.get("contexto_fiscal", ""), label_visibility="collapsed")
-                        _prem_salvas = step_dados_salvos.get("premissas", ["", "", ""])
-                        _lbl("O que sabemos — premissa 1", "Fato ou dado concreto que embasa a análise. Registre aqui informações confirmadas sobre o caso.")
-                        premissa1 = st.text_input("Premissa 1", value=_prem_salvas[0] if len(_prem_salvas) > 0 else "", label_visibility="collapsed")
-                        _lbl("O que sabemos — premissa 2", "Segundo fato ou dado que influencia a análise.")
-                        premissa2 = st.text_input("Premissa 2", value=_prem_salvas[1] if len(_prem_salvas) > 1 else "", label_visibility="collapsed")
-                        _lbl("O que sabemos — premissa 3 (opcional)", "Premissa adicional, se houver. Deixe em branco se não aplicável.")
-                        premissa3 = st.text_input("Premissa 3", value=_prem_salvas[2] if len(_prem_salvas) > 2 else "", label_visibility="collapsed")
-                        dados_passo["premissas"] = [p for p in [premissa1, premissa2, premissa3] if p.strip()]
+                        _MIN_PREMISSAS = 3
+                        _prem_salvas = step_dados_salvos.get("premissas", [])
+                        _lbl("Premissas regulatórias ✱ (mín. 3)",
+                             "Declare o que você assume como verdadeiro sobre a legislação aplicável. "
+                             "Mínimo de 3 premissas obrigatórias antes de avançar para a análise. "
+                             "Ex: 'Assumo alíquota de referência do IBS de X% conforme art. Y da LC 214/2025'")
+                        _premissa_placeholders = [
+                            "Ex: Assumo que a alíquota de CBS é de 8,8% conforme LC 214/2025",
+                            "Ex: O crédito de IBS na entrada é aproveitável neste caso",
+                            "Ex: A operação se enquadra no regime geral, sem regimes diferenciados",
+                            "Ex: Assumo regulamentação do Comitê Gestor (LC 227/2026) permitindo o procedimento",
+                            "Ex: O split payment já está ativo para este tipo de operação",
+                        ]
+                        _premissas_inputs = []
+                        for _pi in range(5):
+                            _req_mark = " ✱" if _pi < _MIN_PREMISSAS else " (opcional)"
+                            _lbl_text = f"Premissa {_pi + 1}{_req_mark}"
+                            _pv = _prem_salvas[_pi] if _pi < len(_prem_salvas) else ""
+                            _premissas_inputs.append(
+                                st.text_input(
+                                    _lbl_text,
+                                    value=_pv,
+                                    placeholder=_premissa_placeholders[_pi],
+                                    label_visibility="visible",
+                                )
+                            )
+                        dados_passo["premissas"] = [p for p in _premissas_inputs if p.strip()]
+                        if len(dados_passo["premissas"]) < _MIN_PREMISSAS:
+                            st.warning(
+                                f"⚠️ Declare ao menos {_MIN_PREMISSAS} premissas regulatórias. "
+                                f"Preenchidas: {len(dados_passo['premissas'])} de {_MIN_PREMISSAS}."
+                            )
                         _lbl("Período de referência", "Intervalo de tempo ao qual o caso se refere (mês/ano de início e fim).")
                         dados_passo["periodo_fiscal"] = st.text_input("Período", value=step_dados_salvos.get("periodo_fiscal", ""), label_visibility="collapsed")
 
@@ -1186,12 +1216,40 @@ with aba3:
                             st.caption(f"**{METODOS_ANALISE[_mid]['nome']}** — {METODOS_ANALISE[_mid]['quando_usar']}")
 
                     elif passo_atual == 2:
-                        # Passo 2: Estruturar riscos e dados (old P3)
-                        _lbl("Risco mapeado 1", "Principal risco tributário identificado neste caso. Descreva o cenário de risco e suas possíveis consequências.")
-                        risco1 = st.text_input("Risco 1", label_visibility="collapsed")
-                        _lbl("Risco mapeado 2 (opcional)", "Segundo risco, se houver. Deixe em branco se não aplicável.")
-                        risco2 = st.text_input("Risco 2", label_visibility="collapsed")
-                        dados_passo["riscos"] = [r for r in [risco1, risco2] if r.strip()]
+                        # Passo 2: Estruturar riscos e dados (G02 — mín. 3 riscos obrigatórios)
+                        _MIN_RISCOS = 3
+                        _riscos_salvas = step_dados_salvos.get("riscos", [])
+                        _lbl("Riscos fiscais ✱ (mín. 3)",
+                             "Declare o que pode dar errado — riscos de autuação, divergência interpretativa, "
+                             "mudança regulatória ou inadimplência. Mínimo de 3 riscos obrigatórios. "
+                             "Ex: 'Glosa de créditos por divergência interpretativa do Fisco'")
+                        _risco_placeholders = [
+                            "Ex: Glosa de créditos por divergência interpretativa do Fisco",
+                            "Ex: Mudança de alíquota durante o período de transição",
+                            "Ex: Divergência entre apuração CBS (federal) e IBS (estadual/municipal)",
+                            "Ex: Inadimplência do comprador em vendas parceladas com split payment",
+                            "Ex: Regulamentação do Comitê Gestor ainda pendente para este caso",
+                        ]
+                        _riscos_inputs = []
+                        for _ri in range(5):
+                            _req_mark = " ✱" if _ri < _MIN_RISCOS else " (opcional)"
+                            _lbl_text = f"Risco {_ri + 1}{_req_mark}"
+                            _rv = _riscos_salvas[_ri] if _ri < len(_riscos_salvas) else ""
+                            _riscos_inputs.append(
+                                st.text_input(
+                                    _lbl_text,
+                                    value=_rv,
+                                    placeholder=_risco_placeholders[_ri],
+                                    label_visibility="visible",
+                                )
+                            )
+                        dados_passo["riscos"] = [r for r in _riscos_inputs if r.strip()]
+                        if len(dados_passo["riscos"]) < _MIN_RISCOS:
+                            st.warning(
+                                f"⚠️ Declare ao menos {_MIN_RISCOS} riscos fiscais. "
+                                f"Preenchidos: {len(dados_passo['riscos'])} de {_MIN_RISCOS}."
+                            )
+                        st.divider()
                         qualidade_opcoes = {
                             "🟢 Verde — dados completos e consistentes": "verde",
                             "🟡 Amarelo — dados parciais, análise com ressalva": "amarelo",
@@ -1311,6 +1369,26 @@ with aba3:
 
                 if not _caso_concluido and (btn_avancar or btn_voltar):
                     acao = "avancar" if btn_avancar else "voltar"
+
+                    # G02 — validar mínimo de premissas no P1
+                    if btn_avancar and passo_atual == 1:
+                        if len(dados_passo.get("premissas", [])) < 3:
+                            st.error(
+                                "🔒 **P1 incompleto.** Declare ao menos 3 premissas regulatórias "
+                                "antes de avançar. "
+                                "'O maior erro tributário é o erro de premissa não declarada.'"
+                            )
+                            st.stop()
+
+                    # G02 — validar mínimo de riscos no P2
+                    if btn_avancar and passo_atual == 2:
+                        if len(dados_passo.get("riscos", [])) < 3:
+                            st.error(
+                                "🔒 **P2 incompleto.** Declare ao menos 3 riscos fiscais "
+                                "antes de avançar para a análise."
+                            )
+                            st.stop()
+
                     # BUG-12 — validar data em Passo 6 antes de chamar API
                     if btn_avancar and passo_atual == 6:
                         _data_rev = dados_passo.get("data_revisao", "")
