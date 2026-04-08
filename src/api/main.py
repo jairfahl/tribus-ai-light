@@ -133,6 +133,7 @@ class AnalyzeRequest(BaseModel):
     criticidade: str = Field("media", description="Nível de criticidade do caso: baixa | media | alta | extrema")
     premissas: list[str] = Field([], description="Premissas regulatórias declaradas no P2 (mín. 3)")
     riscos_fiscais: list[str] = Field([], description="Riscos fiscais declarados no P2 (mín. 3)")
+    fatos_cliente: dict = Field({}, description="Qualificação fática do cliente (G23): cnae, regime, UFs, tipo operação, faturamento")
 
 
 # --- Serialização de AnaliseResult para dict ---
@@ -352,6 +353,7 @@ def analyze(request: Request, req: AnalyzeRequest):
             criticidade=req.criticidade,
             premissas=req.premissas,
             riscos_fiscais=req.riscos_fiscais,
+            fatos_cliente=req.fatos_cliente or {},
         )
     except Exception as e:
         logger.error("Erro interno em /v1/analyze: %s", e, exc_info=True)

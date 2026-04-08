@@ -43,6 +43,7 @@ from src.rag.spd import (
     spd_retrieve,
 )
 from src.cognitive.metodos import formatar_metodos_para_prompt
+from src.cognitive.qualificacao_fatica import calcular_semaforo, formatar_fatos_para_contexto
 
 load_dotenv()
 
@@ -528,6 +529,7 @@ def _chamar_llm(
     metodos_selecionados: Optional[list[str]] = None,
     premissas: Optional[list[str]] = None,
     riscos_fiscais: Optional[list[str]] = None,
+    fatos_cliente: Optional[dict] = None,
     _escalated: bool = False,
 ) -> dict:
     """Chama o LLM e retorna o JSON parseado.
@@ -567,9 +569,12 @@ def _chamar_llm(
             + "\n(Avalie se esses riscos se materializam no caso e se há riscos adicionais não declarados.)"
         )
 
+    fatos_bloco = formatar_fatos_para_contexto(fatos_cliente or {})
+
     user_msg = (
         f"TRECHOS LEGISLATIVOS RECUPERADOS:\n{contexto}\n\n"
         f"CONSULTA: {query}"
+        f"{fatos_bloco}"
         f"{caso_str}"
         f"{similares_str}"
         f"{premissas_bloco}"
@@ -622,6 +627,7 @@ def _chamar_llm(
                 metodos_selecionados=metodos_selecionados,
                 premissas=premissas,
                 riscos_fiscais=riscos_fiscais,
+                fatos_cliente=fatos_cliente,
                 _escalated=True,
             )
         raise RuntimeError(
@@ -738,6 +744,7 @@ def _registrar_interacao(
     riscos_fiscais: Optional[list[str]] = None,
     forca_corrente_contraria: Optional[str] = None,
     contra_tese_presente: bool = False,
+    fatos_cliente: Optional[dict] = None,
 ) -> None:
     """Registra em ai_interactions."""
     # Opção A: UUID de bypass (BYPASS_AUTH) não existe em users — gravar NULL
@@ -749,6 +756,8 @@ def _registrar_interacao(
         _premissas_pg = premissas or []
         _riscos_pg = riscos_fiscais or []
         _p2_concluido = len(_premissas_pg) >= 3 and len(_riscos_pg) >= 3
+        _fatos = fatos_cliente or {}
+        _qf_semaforo = calcular_semaforo(_fatos).semaforo if _fatos else None
         cur.execute(
             """
             INSERT INTO ai_interactions (
@@ -761,8 +770,10 @@ def _registrar_interacao(
                 hyde_activated, multi_query_activated, query_variations_count,
                 step_back_activated, step_back_query, user_id,
                 premissas, riscos_fiscais, p2_concluido,
-                forca_corrente_contraria, contra_tese_presente
-            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                forca_corrente_contraria, contra_tese_presente,
+                qf_cnae_principal, qf_regime_tributario, qf_ufs_operacao,
+                qf_tipo_operacao, qf_faturamento_faixa, qf_semaforo
+            ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """,
             (
                 query,
@@ -797,6 +808,12 @@ def _registrar_interacao(
                 _p2_concluido,
                 forca_corrente_contraria,
                 contra_tese_presente,
+                _fatos.get("cnae_principal"),
+                _fatos.get("regime_tributario"),
+                _fatos.get("ufs_operacao"),
+                _fatos.get("tipo_operacao"),
+                _fatos.get("faturamento_faixa"),
+                _qf_semaforo,
             ),
         )
         conn.commit()
@@ -820,6 +837,7 @@ def analisar(
     criticidade: str = "media",
     premissas: Optional[list[str]] = None,
     riscos_fiscais: Optional[list[str]] = None,
+    fatos_cliente: Optional[dict] = None,
 ) -> AnaliseResult:
     """
     Pipeline completo de análise tributária (6 Passos).
@@ -840,7 +858,8 @@ def analisar(
                                casos_similares, user_id,
                                metodos_selecionados=metodos_selecionados,
                                premissas=premissas,
-                               riscos_fiscais=riscos_fiscais)
+                               riscos_fiscais=riscos_fiscais,
+                               fatos_cliente=fatos_cliente)
     finally:
         put_conn(conn)
 
@@ -861,6 +880,7 @@ def _analisar_inner(
     metodos_selecionados: Optional[list[str]] = None,
     premissas: Optional[list[str]] = None,
     riscos_fiscais: Optional[list[str]] = None,
+    fatos_cliente: Optional[dict] = None,
 ) -> AnaliseResult:
     """Corpo interno do pipeline de análise (chamado por analisar com try/finally)."""
     # PTF — Pre-filter Temporal: extrair data de referência da query
@@ -1084,7 +1104,8 @@ def _analisar_inner(
                         query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
                         casos_similares=casos_similares,
                         metodos_selecionados=metodos_selecionados,
-                        premissas=premissas, riscos_fiscais=riscos_fiscais)
+                        premissas=premissas, riscos_fiscais=riscos_fiscais,
+                        fatos_cliente=fatos_cliente)
 
     # Ativar CoT se necessário e re-chamar
     if _precisa_cot(qualidade, dados):
@@ -1093,7 +1114,8 @@ def _analisar_inner(
                             query_tipo=qt_str, quality_gate=qg_str, contexto_caso=contexto_caso,
                             casos_similares=casos_similares,
                             metodos_selecionados=metodos_selecionados,
-                            premissas=premissas, riscos_fiscais=riscos_fiscais)
+                            premissas=premissas, riscos_fiscais=riscos_fiscais,
+                            fatos_cliente=fatos_cliente)
 
     # P4 — Anti-alucinação
     anti = AntiAlucinacaoResult()
@@ -1125,6 +1147,7 @@ def _analisar_inner(
             casos_similares=casos_similares,
             metodos_selecionados=metodos_selecionados,
             premissas=premissas, riscos_fiscais=riscos_fiscais,
+            fatos_cliente=fatos_cliente,
         )
         m4_ok2, m4_flags2 = _verificar_m4_consistencia(dados_corrigido)
         if m4_ok2:
@@ -1225,7 +1248,8 @@ def _analisar_inner(
                         premissas=premissas,
                         riscos_fiscais=riscos_fiscais,
                         forca_corrente_contraria=dados.get("forca_corrente_contraria"),
-                        contra_tese_presente=bool(dados.get("contra_tese")))
+                        contra_tese_presente=bool(dados.get("contra_tese")),
+                        fatos_cliente=fatos_cliente)
     logger.info("Análise concluída: status=%s score=%s latência=%dms flags=%s",
                 qualidade.status, dados.get("scoring_confianca"), latencia_ms, all_flags)
 

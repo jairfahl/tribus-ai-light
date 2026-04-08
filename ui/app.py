@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from src.cognitive.metodos import METODOS_ANALISE, MAX_METODOS, sugerir_metodos
 from src.cognitive.detector_carimbo import detectar_carimbo as _detectar_carimbo
 from ui.components.grau_consolidacao import exibir_painel_governanca
+from ui.components.qualificacao_fatica import coletar_qualificacao_fatica
 
 load_dotenv()
 
@@ -327,6 +328,8 @@ with aba1:
         label_visibility="collapsed",
     )
 
+    _fatos_consultar = coletar_qualificacao_fatica(key_prefix="consul")
+
     if st.button("Analisar", type="primary", disabled=not query.strip()):
         with st.spinner("Analisando..."):
             try:
@@ -338,6 +341,7 @@ with aba1:
                         "top_k": top_k,
                         "excluir_tipos": [] if incluir_outros else ["Outro"],
                         "user_id": st.session_state.get("user_id"),
+                        "fatos_cliente": _fatos_consultar,
                     },
                     timeout=60,
                 )
@@ -1092,6 +1096,7 @@ with aba3:
                                 _metodos_p1 = _p1_dados.get("metodos_selecionados", [])
                                 _criticidade_p1 = _p1_dados.get("criticidade", "media")
                                 _premissas_p1 = _p1_dados.get("premissas", [])
+                                _fatos_p1_saved = _p1_dados.get("fatos_cliente", {})
                                 _p2_entry = _steps_data.get(2) or _steps_data.get("2") or {}
                                 _p2_dados = _p2_entry.get("dados") or {}
                                 _riscos_p2 = _p2_dados.get("riscos", [])
@@ -1106,6 +1111,7 @@ with aba3:
                                         "criticidade": _criticidade_p1,
                                         "premissas": _premissas_p1,
                                         "riscos_fiscais": _riscos_p2,
+                                        "fatos_cliente": _fatos_p1_saved,
                                     },
                                     timeout=60.0,
                                 )
@@ -1251,6 +1257,15 @@ with aba3:
                         dados_passo["metodos_selecionados"] = [_metodos_opcoes[n] for n in _metodos_sel_nomes]
                         for _mid in dados_passo["metodos_selecionados"]:
                             st.caption(f"**{METODOS_ANALISE[_mid]['nome']}** — {METODOS_ANALISE[_mid]['quando_usar']}")
+
+                        # ── Qualificação Fática (G23) ──────────────────────────
+                        st.divider()
+                        _qf_ini_p1 = step_dados_salvos.get("fatos_cliente", {})
+                        _fatos_p1 = coletar_qualificacao_fatica(
+                            key_prefix=f"p1_{case_id_input}",
+                            valores_iniciais=_qf_ini_p1,
+                        )
+                        dados_passo["fatos_cliente"] = _fatos_p1
 
                     elif passo_atual == 2:
                         # Passo 2: Estruturar riscos e dados (G02 — mín. 3 riscos obrigatórios)
