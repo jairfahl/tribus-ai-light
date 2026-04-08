@@ -28,7 +28,9 @@ from ui.pages.simulador_is import render_calculadora_is
 from ui.pages.ciclo_pos_decisao import render_ciclo_pos_decisao
 from ui.pages.painel_aprendizado import render_painel_aprendizado
 from src.cognitive.monitoramento_p6 import ativar_monitoramento_p6
-from src.cognitive.aprendizado_institucional import buscar_heuristicas_relevantes
+from src.cognitive.aprendizado_institucional import buscar_heuristicas_relevantes, _extrair_tags_premissas
+from ui.components.sugestoes_proativas import exibir_sugestoes_proativas
+from src.cognitive.proatividade import registrar_tags_analise
 
 load_dotenv()
 
@@ -354,6 +356,12 @@ with aba1:
     st.title("Tribus-AI — Reforma Tributária")
     st.caption("Análise tributária com base legislativa verificada · Esta análise não substitui a avaliação do seu time fiscal")
 
+    # Sugestões proativas (D5, G25) — expander colapsado, não intrusivo
+    try:
+        exibir_sugestoes_proativas()
+    except Exception:
+        pass
+
     # Alertas proativos de aprendizado institucional (C6, G24)
     try:
         _user_id_consultar = st.session_state.get("user_id")
@@ -433,6 +441,15 @@ with aba1:
         data = resp.json()
         # Persistir query para alertas proativos na próxima visita
         st.session_state["_ultima_query_consultar"] = query
+        # Registrar tags para proatividade (D5, G25)
+        try:
+            _tags_analise = _extrair_tags_premissas([query])
+            registrar_tags_analise(
+                user_id=st.session_state.get("user_id"),
+                tags=_tags_analise,
+            )
+        except Exception:
+            pass
         status = data["qualidade"]["status"]
         scoring = data["scoring_confianca"]
 
