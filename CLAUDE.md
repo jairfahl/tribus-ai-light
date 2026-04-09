@@ -92,24 +92,61 @@ PTF → Adaptive Params → SPD routing → Retrieve → CRAG →
 
 ---
 
-## SCHEMA DO BANCO (15 tabelas)
+## SCHEMA DO BANCO (31 tabelas)
 
 ```sql
-normas            -- documentos fonte (EC, LC) + file_hash para dedup
-chunks            -- trechos das normas com metadados jurídicos
-embeddings        -- vetores voyage-3 (1024 dim) + índice HNSW
-consultas         -- log de buscas
-avaliacoes        -- validação manual de qualidade
-ai_interactions   -- log de chamadas ao LLM + user_id + input_tokens + output_tokens
-cases             -- casos protocolares, 6 passos
-case_steps        -- dados de cada passo por caso
-case_state_history-- audit trail de transições
-carimbo_alerts    -- alertas de terceirização cognitiva
-outputs           -- documentos acionáveis gerados (5 classes)
-stakeholder_views -- visões por público-alvo
-monitored_docs    -- documentos detectados pelo monitor de fontes
-prompt_lockfiles  -- lockfiles de integridade de prompts (RDM-029)
-users             -- usuários do sistema (Admin Module, migration 100)
+-- Corpus
+normas                -- documentos fonte (EC, LC) + file_hash para dedup
+chunks                -- trechos das normas com metadados jurídicos
+embeddings            -- vetores voyage-3 (1024 dim) + índice HNSW
+
+-- Consultas e IA
+consultas             -- log de buscas
+avaliacoes            -- validação manual de qualidade
+ai_interactions       -- log de chamadas ao LLM + user_id + criticidade + tokens
+ai_metrics_daily      -- métricas agregadas por dia
+api_usage             -- consumo de API por tenant
+
+-- Protocolo P1→P6
+cases                 -- casos protocolares, 6 passos
+case_steps            -- dados de cada passo por caso
+case_state_history    -- audit trail de transições
+carimbo_alerts        -- alertas de terceirização cognitiva
+
+-- Outputs e documentos
+outputs               -- documentos acionáveis gerados (5 classes) + legal_hold
+output_aprovacoes     -- histórico de aprovações
+output_stakeholders   -- visões por público-alvo
+legal_hold_log        -- audit trail de ativações/desativações de Legal Hold
+
+-- RAG e integridade
+prompt_lockfiles      -- lockfiles de integridade de prompts (RDM-029)
+prompt_baselines      -- baselines para comparação
+
+-- Observability
+drift_alerts          -- alertas de drift semântico
+regression_results    -- resultados de testes de regressão
+
+-- Monitor de fontes
+monitor_fontes        -- fontes DOU/PGFN monitoradas
+monitor_documentos    -- documentos detectados pelo monitor
+
+-- Simulações
+simulacoes_carga      -- simulações de carga tributária
+
+-- Ciclo pós-decisão (P6) e aprendizado
+monitoramento_p6      -- monitoramento ativo de decisões tomadas
+heuristicas           -- heurísticas extraídas de casos encerrados (6 meses validade)
+metricas_aprendizado  -- métricas mensais por usuário
+
+-- Proatividade e padrões
+padroes_uso           -- frequência de temas por usuário (G25)
+sugestoes_silenciadas -- silenciamentos de sugestões proativas
+
+-- Auth e billing
+tenants               -- tenants com plano, trial e status de pagamento
+users                 -- usuários + perfil onboarding (migration 117)
+mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 ```
 
 ---
@@ -130,10 +167,17 @@ users             -- usuários do sistema (Admin Module, migration 100)
 | RDM-028 Context Budget Manager | ✅ |
 | RDM-029 Prompt Integrity Lockfile | ✅ |
 | Admin Module (auth + trial + painel admin) | ✅ |
+| Onda C — P6 + Monitoramento + Aprendizado Institucional | ✅ |
+| Onda D — Criticidade (G17) + MAU Metering (G26) + Proatividade (G25) | ✅ |
+| Auditoria de código — pool unificado, credenciais sem fallback | ✅ |
+| GTM A — WhatsApp CTA na landing page (DEC-11) | ✅ |
+| GTM D — Badge "Memória de Decisão" na UI do Dossiê | ✅ |
+| GTM E — Qualificação de tenant via progressive profiling (3 steps) | ✅ |
 | **Gate U2** | ⏳ Pendente |
 | **Deploy VPS Hostinger** | ⏳ Pendente |
 
-- **Suite de testes:** 354 testes passando (referência pós Admin Module)
+- **Suite de testes:** 597 passando, 29 falhas pré-existentes DB (referência pós GTM E)
+- **Última migration:** `117_onboarding_profile.sql`
 - **Domínios registrados:** tribus-ai.com.br / tribus-ia.com.br
 
 ---

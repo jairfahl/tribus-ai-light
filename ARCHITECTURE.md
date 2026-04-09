@@ -23,11 +23,20 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ```
 /Users/jairfahl/Downloads/tribus-ai-light/
 ├── auth.py                   ← Autenticação JWT + bcrypt
-├── admin.py                  ← Painel admin (renderização Streamlit apenas)
+├── admin.py                  ← Painel admin (5 abas: Users/API/LegalHold/MAU/Onboarding)
 ├── ARCHITECTURE.md           ← Este arquivo
 ├── CLAUDE.md                 ← Regras e contexto permanente para Claude Code
+├── landing/
+│   └── index.html            ← Landing page pública (CTAs trial + WhatsApp)
 ├── ui/
-│   └── app.py                ← Entry point Streamlit + guard de sessão
+│   ├── app.py                ← Entry point Streamlit + guard de sessão + onboarding
+│   └── components/
+│       ├── badge_criticidade.py      ← Badge 3 níveis: Crítico/Atenção/Informativo
+│       ├── sugestoes_proativas.py    ← Sugestões de monitoramento de temas (G25)
+│       ├── onboarding_profile.py     ← Progressive profiling 3 steps (GTM E)
+│       ├── qualificacao_fatica.py    ← Qualificação fática do Eixo 3
+│       ├── grau_consolidacao.py      ← Badge de grau de consolidação jurídica
+│       └── saidas_stakeholder.py     ← Visões por público-alvo
 ├── pages/
 │   └── login.py              ← Tela de login
 ├── components/
@@ -36,7 +45,11 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   ├── api/
 │   │   └── main.py           ← FastAPI — 19+ endpoints
 │   ├── cognitive/
-│   │   └── engine.py         ← Orquestração cognitiva principal
+│   │   ├── engine.py         ← Orquestração cognitiva principal
+│   │   ├── criticidade.py    ← Classificação de criticidade 3 níveis (G17)
+│   │   ├── proatividade.py   ← Detecção de padrões + sugestões de monitoramento (G25)
+│   │   ├── monitoramento_p6.py ← Ciclo pós-decisão P6 + verificação de premissas
+│   │   └── aprendizado_institucional.py ← Extração de heurísticas de casos (G24)
 │   ├── rag/
 │   │   ├── retriever.py      ← Retrieval pgvector + adaptive tool chain
 │   │   ├── hyde.py           ← HyDE — RDM-020
@@ -46,18 +59,23 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   ├── adaptive.py       ← Adaptive retrieval chain
 │   │   ├── ptf.py            ← PTF (Pre-retrieval Transformation)
 │   │   ├── spd.py            ← SPD routing
-│   │   └── decomposer.py     ← Decomposição de queries
+│   │   ├── decomposer.py     ← Decomposição de queries
+│   │   └── remissao_resolver.py ← RAR — Resolução Automática de Remissões
+│   ├── billing/
+│   │   ├── access.py         ← Controle de acesso por billing/trial
+│   │   └── mau_tracker.py    ← Monthly Active Users — metering por análise (G26)
 │   ├── integrity/
 │   │   └── lockfile_manager.py ← Prompt Integrity — RDM-029
-│   ├── outputs/              ← 5 classes de output acionável
+│   ├── outputs/              ← 5 classes de output acionável + legal_hold.py
 │   ├── protocol/             ← Engine P1→P6
 │   ├── quality/              ← Quality gate
 │   ├── observability/        ← Métricas + drift + regression
 │   ├── monitor/              ← Monitor de fontes oficiais
 │   ├── ingest/               ← Pipeline de ingestão de PDFs
-│   └── db/                   ← Conexão e pool de banco
+│   └── db/
+│       └── pool.py           ← ThreadedConnectionPool — get_conn/put_conn (USAR SEMPRE)
 ├── migrations/
-│   └── NNN_descricao.sql     ← Numeração sequencial obrigatória
+│   └── NNN_descricao.sql     ← Numeração sequencial obrigatória (última: 117)
 └── tests/
     ├── unit/                 ← test_[modulo].py
     └── integration/          ← test_[fluxo].py
@@ -91,11 +109,20 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 
 | Módulo | Responsabilidade | O que NÃO faz |
 |---|---|---|
-| `ui/app.py` | Entry point Streamlit, guard de sessão, roteamento de abas | Zero lógica tributária, zero chamadas diretas ao banco |
+| `ui/app.py` | Entry point Streamlit, guard de sessão, onboarding, roteamento de abas | Zero lógica tributária, zero chamadas diretas ao banco |
 | `src/cognitive/engine.py` | Orquestração do pipeline cognitivo completo | Zero renderização UI |
 | `src/rag/retriever.py` | Retrieval HNSW, adaptive tool chain, PTF | Zero lógica de negócio tributária |
 | `auth.py` | JWT, bcrypt, autenticação, busca de usuário | Zero renderização UI |
-| `admin.py` | Renderização do painel admin no Streamlit | Zero lógica de negócio — delega a auth.py e queries diretas |
+| `admin.py` | Renderização do painel admin (5 abas) | Zero lógica de negócio — delega a auth.py e queries diretas |
+| `src/cognitive/criticidade.py` | Classifica Crítico/Atenção/Informativo por termos detectados | Zero renderização |
+| `src/cognitive/proatividade.py` | Detecta padrões de tags e gera sugestões de monitoramento | Zero rendering |
+| `src/cognitive/monitoramento_p6.py` | Ativa/encerra monitoramento P6, verifica premissas | Zero rendering |
+| `src/cognitive/aprendizado_institucional.py` | Extrai heurísticas de casos encerrados, expira com 6 meses | Zero rendering |
+| `src/billing/mau_tracker.py` | Registra e consulta MAU por análise realizada (DEC-08) | Zero lógica tributária |
+| `src/outputs/legal_hold.py` | Ativa/desativa/verifica Legal Hold em outputs e interações | Zero rendering |
+| `src/rag/remissao_resolver.py` | Resolve remissões entre normas e injeta no contexto (RAR) | Zero orquestração |
+| `src/db/pool.py` | Pool de conexões psycopg2 — get_conn/put_conn | Zero lógica de negócio |
+| `ui/components/onboarding_profile.py` | Progressive profiling 3 steps, persiste em users | Zero lógica tributária |
 | `src/rag/hyde.py` | HyDE — geração de hipótese para expand de query | Zero orquestração |
 | `src/rag/multi_query.py` | Multi-Query — variações paralelas da query | Zero orquestração |
 | `src/rag/step_back.py` | Step-Back — query mais abstrata | Zero orquestração |
@@ -144,7 +171,7 @@ Flag `_tool_activated` em `engine.py` controla isso. Nunca remover essa flag.
 ### Banco de Dados
 - **Toda nova feature que toca o banco começa por migration SQL versionada.**
   - Formato: `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)
-  - Migration mais recente: `100_users_table.sql` → próxima será `101_...`
+  - Migration mais recente: `117_onboarding_profile.sql` → próxima será `118_...`
 - **Nunca alterar schema sem migration.** ALTER TABLE direto no banco sem arquivo = proibido.
 
 ### Código
@@ -160,8 +187,9 @@ Flag `_tool_activated` em `engine.py` controla isso. Nunca remover essa flag.
 
 ### Gate de Qualidade
 - **RDMs da Onda 1.5 estão implementados** (HyDE, Multi-Query, Step-Back, Context Budget, Lockfile). Não reimplementar.
-- **354 testes devem passar** após qualquer modificação.
+- **597 testes devem passar** após qualquer modificação (referência pós GTM E, Abril 2026).
   - Comando: `pytest tests/ -v --tb=short`
+  - 29 falhas pré-existentes DB são conhecidas e aceitáveis (requerem banco ativo)
 
 ---
 
@@ -199,9 +227,16 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | CRAG web fallback | ❌ Excluído | Base fechada |
 | Supabase | ❌ Excluído | Docker na VPS é suficiente |
 | ColBERT late interaction | 🔄 Candidato futuro | Reranking pós-HNSW — Onda 2+ |
-| SLM híbrido | 🔄 Onda 3 | 3B–7B params para classificação/triage |
+| SLM híbrido | 🔄 Onda 3 | 3B–7B params para classificação/triage (DEC-09) |
 | Protocolo 9→6 passos | ✅ Consolidado | P7/P8/P9 fundidos em P6 |
-| Admin Module | ✅ Implementado | JWT + bcrypt + trial 30 dias + painel gestão |
+| Admin Module | ✅ Implementado | JWT + bcrypt + trial 30 dias + painel gestão (5 abas) |
+| Pool de conexões unificado | ✅ Implementado | get_conn/put_conn em todos os módulos — sem _get_conn() local |
+| Criticidade 3 níveis | ✅ Implementado | Crítico/Atenção/Informativo — G17, migration 114 |
+| MAU Metering por análise | ✅ Implementado | DEC-08: usuário ativo = análise realizada, não login — G26, migration 115 |
+| Proatividade customizada | ✅ Implementado | Detecção de padrões de tags, sugestões não intrusivas — G25, migration 116 |
+| Onboarding progressive profiling | ✅ Implementado | 3 steps: step 0 obrigatório, 1-2 opcionais — GTM E, migration 117 |
+| Landing page WhatsApp CTA | ✅ Implementado | Botão WhatsApp em hero + CTA final + footer — GTM A/DEC-11 |
+| Badge "Memória de Decisão" | ✅ Implementado | Label no card do Dossiê na aba Documentos — GTM D |
 
 ---
 
