@@ -114,6 +114,7 @@ SIDEBAR_MODO_TESTE = True
 # ─── IMPORTS DO MÓDULO ADMIN ──────────────────────────────────────────────────
 from pages.login import render_login, sessao_valida
 from components.trial_banner import render_trial_banner, render_header_com_logout
+from components.onboarding_profile import gerenciar_onboarding
 
 
 # ─── GUARD DE SESSÃO ─────────────────────────────────────────────────────────
@@ -154,6 +155,12 @@ if not BYPASS_AUTH:
     _dias = dias_restantes_trial(_tenant)
     if _dias is not None and _dias <= 7:
         st.warning(f"⚠️ Seu trial encerra em {_dias} dia(s). Assine agora para não perder o acesso.")
+
+# ─── ONBOARDING — QUALIFICAÇÃO DE TENANT ─────────────────────────────────────
+# Exibe formulário de perfil no primeiro acesso (step 0 obrigatório).
+# Steps 1 e 2 são banners opcionais — não bloqueiam o app.
+if not gerenciar_onboarding(user_id=st.session_state.get("user_id", "")):
+    st.stop()
 
 # ─── HEADER ───────────────────────────────────────────────────────────────────
 # Header e banner apenas em modo produção

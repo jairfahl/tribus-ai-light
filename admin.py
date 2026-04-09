@@ -579,6 +579,50 @@ def _render_secao_mau() -> None:
         st.warning(f"Detalhamento indisponível: {e}")
 
 
+# ─── SEÇÃO E — ONBOARDING / PERFIS DE TENANT ──────────────────────────────────
+
+def _render_secao_onboarding() -> None:
+    """Painel de qualificação de tenant — Insight E GTM Abril 2026."""
+    st.subheader("📋 Perfis de Onboarding")
+    st.caption(
+        "Qualificação de tenant coletada via progressive profiling (3 steps). "
+        "Insight E — Benchmarking Omnitax."
+    )
+
+    conn = psycopg2.connect(DATABASE_URL)
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT nome, email, tipo_atuacao, cargo_responsavel,
+                       regime_tributario, faturamento_faixa,
+                       onboarding_step, criado_em::date
+                FROM users
+                WHERE perfil = 'USER'
+                ORDER BY criado_em DESC
+                """
+            )
+            cols = [d[0] for d in cur.description]
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        st.info("Nenhum usuário cadastrado ainda.")
+        return
+
+    df = pd.DataFrame(rows, columns=cols)
+    df.columns = ["Nome", "E-mail", "Tipo", "Cargo", "Regime",
+                  "Faturamento", "Step", "Cadastro"]
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    completos = sum(1 for r in rows if r[6] == 3)
+    st.caption(
+        f"Step completo (3/3): **{completos}/{len(rows)}** usuários · "
+        f"Step 0 pendente: **{sum(1 for r in rows if r[6] == 0)}**"
+    )
+
+
 # ─── ENTRY POINT ───────────────────────────────────────────────────────────────
 
 def render_painel_admin():
@@ -594,8 +638,8 @@ def render_painel_admin():
 
     st.title("⚙️ Administração")
 
-    sec_a, sec_b, sec_c, sec_d = st.tabs(
-        ["👥 Usuários", "💰 Consumo de API", "🔒 Legal Hold", "📊 MAU"]
+    sec_a, sec_b, sec_c, sec_d, sec_e = st.tabs(
+        ["👥 Usuários", "💰 Consumo de API", "🔒 Legal Hold", "📊 MAU", "📋 Onboarding"]
     )
 
     with sec_a:
@@ -609,3 +653,6 @@ def render_painel_admin():
 
     with sec_d:
         _render_secao_mau()
+
+    with sec_e:
+        _render_secao_onboarding()
