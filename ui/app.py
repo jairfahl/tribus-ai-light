@@ -115,6 +115,7 @@ SIDEBAR_MODO_TESTE = True
 from pages.login import render_login, sessao_valida
 from components.trial_banner import render_trial_banner, render_header_com_logout
 from components.onboarding_profile import gerenciar_onboarding
+from components.styles import inject_global_css
 
 
 # ─── GUARD DE SESSÃO ─────────────────────────────────────────────────────────
@@ -155,6 +156,9 @@ if not BYPASS_AUTH:
     _dias = dias_restantes_trial(_tenant)
     if _dias is not None and _dias <= 7:
         st.warning(f"⚠️ Seu trial encerra em {_dias} dia(s). Assine agora para não perder o acesso.")
+
+# ─── DESIGN SYSTEM — CSS GLOBAL ──────────────────────────────────────────────
+inject_global_css()
 
 # ─── ONBOARDING — QUALIFICAÇÃO DE TENANT ─────────────────────────────────────
 # Exibe formulário de perfil no primeiro acesso (step 0 obrigatório).
