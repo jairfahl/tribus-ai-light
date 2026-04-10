@@ -1,0 +1,148 @@
+/* =============================================================
+   TRIBUS-AI — DESIGN TOKENS
+   Extraídos da landing page em: 2026-04-10
+   Fonte de verdade para todo o frontend React.
+   Para alterar qualquer cor/fonte, altere AQUI — em nenhum outro lugar.
+
+   Origem:
+     landing/index.html  →  :root { --azul-*, --cinza-*, --borda, --destaque }
+     ui/components/styles.py  →  validação de uso no Streamlit atual
+   ============================================================= */
+
+:root {
+
+  /* ── CORES PRIMÁRIAS ────────────────────────────────────────── */
+  --color-primary:        #2E75B6;   /* --azul-medio  — botões CTA, links ativos  */
+  --color-primary-hover:  #2563a8;   /* btn-primary:hover da landing              */
+  --color-primary-dark:   #1F3864;   /* --azul-escuro — hero, headers, nav        */
+  --color-primary-mid:    #2a4d8a;   /* ponto médio do gradiente do hero          */
+  --color-primary-light:  #E8F0FA;   /* --azul-claro  — badges, fundos suaves     */
+
+  /* ── BACKGROUNDS ────────────────────────────────────────────── */
+  --color-bg-base:        #FFFFFF;   /* --branco — fundo principal                */
+  --color-bg-section:     #F5F7FA;   /* --cinza-claro — seções alternadas         */
+  --color-bg-card:        #FFFFFF;   /* fundo de cards                            */
+  --color-bg-card-hover:  #F5F7FA;   /* card hover — derivado de cinza-claro      */
+  --color-bg-sidebar:     #F0F4FA;   /* derivado entre bg-base e primary-light    */
+  --color-bg-input:       #F9FAFB;   /* derivado — entre branco e cinza-claro     */
+  --color-bg-hero:        #1F3864;   /* cor sólida base do gradiente hero         */
+  --color-bg-disclaimer:  #fffbeb;   /* fundo do aviso legal                      */
+
+  /* ── TEXTO ──────────────────────────────────────────────────── */
+  --color-text-primary:   #4A5568;   /* --cinza-texto — corpo de texto            */
+  --color-text-heading:   #1F3864;   /* --azul-escuro — títulos e headings        */
+  --color-text-secondary: #9AA5B1;   /* --cinza-medio — subtítulo, captions       */
+  --color-text-muted:     #718096;   /* derivado — placeholder, labels suaves     */
+  --color-text-on-dark:   #FFFFFF;   /* texto sobre fundos escuros                */
+  --color-text-on-dark-70: rgba(255,255,255,0.70); /* subtítulo sobre hero       */
+  --color-text-disclaimer: #7c4a00;  /* texto do aviso legal (landing)            */
+
+  /* ── BORDAS ─────────────────────────────────────────────────── */
+  --color-border:         #E2E8F0;   /* --borda — border padrão de cards e inputs */
+  --color-border-focus:   var(--color-primary);
+  --color-border-strong:  var(--color-primary-dark);
+
+  /* ── DESTAQUE / ACCENT ──────────────────────────────────────── */
+  --color-accent:         #F59E0B;   /* --destaque — badge "Mais escolhido", alerta */
+  --color-accent-text:    #7c4a00;   /* texto sobre fundo destaque                */
+  --color-accent-bg:      #fffbeb;   /* fundo suave do destaque                   */
+
+  /* ── CANAL WHATSAPP ─────────────────────────────────────────── */
+  --color-whatsapp:       #25D366;   /* btn-whatsapp da landing                   */
+  --color-whatsapp-hover: #1DA851;
+
+  /* ── SEMÁFOROS (funcionais) ─────────────────────────────────── */
+  --color-success:        #10B981;
+  --color-success-light:  #ecfdf5;
+  --color-success-text:   #065f46;
+  --color-warning:        #F59E0B;
+  --color-warning-light:  #fffbeb;
+  --color-warning-text:   #92400e;
+  --color-danger:         #EF4444;
+  --color-danger-light:   #fee2e2;
+  --color-danger-text:    #991b1b;
+  --color-info:           var(--color-primary);
+  --color-info-light:     var(--color-primary-light);
+  --color-info-text:      var(--color-primary-dark);
+
+  /* ── CRITICIDADE (badges — G17) ─────────────────────────────── */
+  --color-critico:        var(--color-danger);
+  --color-critico-bg:     var(--color-danger-light);
+  --color-critico-text:   var(--color-danger-text);
+  --color-atencao:        var(--color-warning);
+  --color-atencao-bg:     var(--color-warning-light);
+  --color-atencao-text:   var(--color-warning-text);
+  --color-informativo:    var(--color-info);
+  --color-informativo-bg: var(--color-info-light);
+  --color-informativo-text: var(--color-info-text);
+
+  /* ── LEGAL HOLD ─────────────────────────────────────────────── */
+  --color-hold:           #7c3aed;
+  --color-hold-bg:        #f3e8ff;
+  --color-hold-text:      #6b21a8;
+
+  /* ── TIPOGRAFIA ─────────────────────────────────────────────── */
+  --font-sans:  'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:  'JetBrains Mono', 'Fira Code', monospace;
+
+  /* pesos */
+  --font-normal:    400;
+  --font-medium:    500;
+  --font-semibold:  600;
+  --font-bold:      700;
+  --font-extrabold: 800;
+
+  /* escala */
+  --text-xs:   0.75rem;    /* 12px */
+  --text-sm:   0.875rem;   /* 14px */
+  --text-base: 1rem;       /* 16px */
+  --text-lg:   1.125rem;   /* 18px */
+  --text-xl:   1.25rem;    /* 20px */
+  --text-2xl:  1.5rem;     /* 24px */
+  --text-3xl:  1.875rem;   /* 30px */
+  --text-4xl:  2.25rem;    /* 36px */
+  --text-5xl:  clamp(2rem, 5vw, 3.25rem); /* hero h1 — responsivo como landing */
+
+  /* alturas de linha */
+  --leading-tight:  1.15;
+  --leading-snug:   1.25;
+  --leading-normal: 1.65;
+
+  /* ── ESPAÇAMENTO (escala 4px base) ──────────────────────────── */
+  --space-1:  0.25rem;   /*  4px */
+  --space-2:  0.5rem;    /*  8px */
+  --space-3:  0.75rem;   /* 12px */
+  --space-4:  1rem;      /* 16px */
+  --space-5:  1.25rem;   /* 20px */
+  --space-6:  1.5rem;    /* 24px */
+  --space-7:  1.75rem;   /* 28px */
+  --space-8:  2rem;      /* 32px */
+  --space-10: 2.5rem;    /* 40px */
+  --space-12: 3rem;      /* 48px */
+  --space-16: 4rem;      /* 64px */
+  --space-20: 5rem;      /* 80px */
+  --space-24: 6rem;      /* 96px */  /* padding de section na landing */
+
+  /* ── BORDAS ARREDONDADAS ────────────────────────────────────── */
+  --radius-sm:   4px;
+  --radius:      8px;
+  --radius-md:   10px;   /* --raio da landing */
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-full: 9999px; /* badges pill */
+
+  /* ── SOMBRAS (baseadas na landing) ──────────────────────────── */
+  --shadow-sm: 0 1px 3px rgba(31,56,100,.06);
+  --shadow:    0 4px 24px rgba(31,56,100,.10);   /* --sombra da landing */
+  --shadow-lg: 0 8px 40px rgba(31,56,100,.20);
+  --shadow-hero: 0 24px 64px rgba(0,0,0,.40);    /* hero-visual da landing */
+
+  /* ── TRANSIÇÕES ─────────────────────────────────────────────── */
+  --transition-fast: 150ms ease;
+  --transition:      200ms ease;
+  --transition-slow: 300ms ease;
+
+  /* ── LAYOUT ─────────────────────────────────────────────────── */
+  --max-width:       1120px;  /* max-width do .container na landing */
+  --nav-height:      64px;    /* min-height do nav-inner */
+}
