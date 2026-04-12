@@ -1,5 +1,5 @@
 # Tribus-AI — Architecture Reference
-**Versão:** 2.2
+**Versão:** 2.3
 **Atualizado em:** Abril 2026
 **Mantido por:** PO (Jair)
 
@@ -135,7 +135,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | Embeddings | Voyage-3 |
 | LLM | Claude Sonnet 4.6 |
 | Rate limiting | slowapi 0.1.9 + limits 3.6.0 |
-| Infraestrutura | Docker Compose (3 serviços: db, api, ui) |
+| Infraestrutura | Docker Compose (4 serviços: db, api, ui, nginx) |
 | Container DB | tribus-ai-db |
 | DATABASE_URL local | postgresql://taxmind:taxmind123@localhost:5436/taxmind_db |
 | DATABASE_URL Docker | postgresql://taxmind:taxmind123@db:5432/taxmind_db |
