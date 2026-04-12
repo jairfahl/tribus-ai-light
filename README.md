@@ -2,6 +2,10 @@
 
 Sistema de análise tributária com RAG e protocolo de decisão para a Reforma Tributária brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 
+**Produção:** https://tribus-ai.com.br
+
+---
+
 ## O que é o Tribus-AI?
 
 O Tribus-AI é uma ferramenta de suporte à decisão tributária composta por dois modos de uso:
@@ -9,15 +13,19 @@ O Tribus-AI é uma ferramenta de suporte à decisão tributária composta por do
 - **Consulta rápida** — perguntas pontuais sobre a Reforma Tributária, respondidas com fundamentação legal via RAG
 - **Protocolo de Decisão (6 passos)** — processo estruturado para análise, recomendação e decisão sobre cenários tributários complexos
 
+---
+
 ## Funcionalidades
 
-| Aba | Função |
-|-----|--------|
-| **Consultar** | Consulta rápida à base de conhecimento com indicadores de qualidade, fundamentação legal e ação recomendada |
-| **Adicionar Norma** | Upload de PDFs (INs, Resoluções, Pareceres), detecção de duplicidade por hash MD5, ingestão assíncrona, listagem e exclusão de documentos, monitor de fontes oficiais |
-| **Protocolo de Decisão** | Protocolo de 6 passos: registrar & classificar → estruturar riscos → análise Tribus-AI → posição do gestor → decidir → ciclo pós-decisão |
-| **Documentos** | Geração de documentos acionáveis (Alerta, Nota de Trabalho, Recomendação Formal, Dossiê de Decisão, Material para Compartilhamento) com visões por stakeholder |
-| **⚙️ Admin** | Painel de gestão de usuários (ADMIN): criar/ativar/desativar usuários, redefinir senhas, monitorar consumo de API com estimativa de custo em USD |
+| Página | Função |
+|--------|--------|
+| **Analisar** | Análise RAG principal com criticidade, fundamentação legal e ação recomendada |
+| **Consultar** | Consulta rápida à base de conhecimento |
+| **Protocolo** | Protocolo de 6 passos: classificar → estruturar → analisar → hipótese → decidir → monitorar |
+| **Simuladores** | Simuladores de carga tributária (IS, Split Payment, Reestruturação, CARGA RT) |
+| **Documentos** | Geração de documentos acionáveis (Alerta, Nota de Trabalho, Recomendação Formal, Dossiê, Compartilhamento) com visões por stakeholder |
+| **Base de Conhecimento** | Upload de PDFs (INs, Resoluções, Pareceres), dedup por hash MD5, ingestão assíncrona, monitor de fontes oficiais |
+| **Admin** | Gestão de usuários (ADMIN only): criar/ativar/desativar, redefinir senhas, monitorar consumo |
 
 ### RAG Avançado
 
@@ -29,98 +37,133 @@ O Tribus-AI é uma ferramenta de suporte à decisão tributária composta por do
 | **Context Budget Manager** | Toda query — modo SUMMARY (FACTUAL) ou FULL (INTERPRETATIVA/COMPARATIVA) | RDM-028 |
 | **Prompt Integrity Lockfile** | Boot do engine — SHA-256 dos prompts com modo BLOCK/WARN | RDM-029 |
 
-As ferramentas RAG avançadas (Multi-Query, Step-Back, HyDE) sao mutuamente exclusivas por query, com prioridade nesta ordem.
+As ferramentas RAG avançadas (Multi-Query, Step-Back, HyDE) são mutuamente exclusivas por query, com prioridade nesta ordem.
+
+---
 
 ## Stack Técnica
 
 | Componente | Tecnologia |
 |------------|------------|
-| Linguagem | Python 3.12+ |
-| Banco de dados | PostgreSQL 16 + pgvector (Docker Compose) |
+| Linguagem backend | Python 3.12+ |
+| API | FastAPI (uvicorn, porta 8020 local) |
+| Frontend | Next.js 16 App Router + Tailwind v4 + shadcn/ui v2 |
+| Estado do cliente | Zustand + localStorage persist |
+| HTTP client | axios com interceptors (Bearer + X-Api-Key) |
+| Banco de dados | PostgreSQL 16 + pgvector (Docker) |
 | Embeddings | voyage-3 (1024 dim) via VoyageAI API |
 | LLM | claude-sonnet-4-6 |
 | Autenticação | JWT (HS256, 8h) + bcrypt rounds=12 |
 | Perfis | ADMIN (visão global) / USER (isolamento de tenant) |
-| API | FastAPI (uvicorn) |
-| UI | Streamlit |
 | Busca vetorial | pgvector com índice HNSW (cosine, m=16, ef=64) |
 | Re-ranking | BM25 em memória (score híbrido: 0.7 cosine + 0.3 BM25) |
 | RAG avançado | Adaptive Retrieval: Multi-Query > Step-Back > HyDE |
+| Rate limiting | slowapi 0.1.9 |
 | Integridade | Prompt Integrity Lockfile (SHA-256, BLOCK/WARN) |
-| Budget | Context Budget Manager (SUMMARY/FULL por tipo de query) |
+| Infra local | Docker Compose (db + api + ui) |
+| Infra produção | Docker Compose (db + api + ui + nginx) + VPS Hostinger |
 
-## Pré-requisitos
+---
 
-- Python 3.12+
-- Docker + Docker Compose
-- Chave VoyageAI API (voyage-3)
-- Chave Anthropic API (Claude)
+## Setup Local (Desenvolvimento)
 
-## Setup
-
-### 1. Configurar variáveis de ambiente
+### 1. Variáveis de ambiente
 
 ```bash
 cp .env.example .env
-# Editar .env e preencher ANTHROPIC_API_KEY e VOYAGE_API_KEY
+# Preencher ANTHROPIC_API_KEY, VOYAGE_API_KEY, JWT_SECRET, API_INTERNAL_KEY
 ```
 
-### 2. Subir tudo com Docker Compose
+### 2. Subir com Docker Compose
 
 ```bash
 docker compose up -d --build
-docker compose ps   # aguardar todos os serviços "Up" e DB "healthy"
+docker compose ps   # aguardar todos "Up" e DB "healthy"
 ```
 
-Isso sobe 3 serviços:
+Serviços:
 - **db** — PostgreSQL 16 + pgvector (porta 5436)
 - **api** — FastAPI/uvicorn (porta 8020)
-- **ui** — Streamlit (porta 8521, com hot-reload via volume mount)
+- **ui** — Next.js (porta 8521)
 
 Acesse `http://localhost:8521` no navegador.
 
-### 3. Rodar a ingestão inicial dos PDFs (primeira vez)
+### 3. Aplicar migrations (primeira vez)
+
+```bash
+for f in $(ls migrations/*.sql | sort); do
+  docker exec -i tribus-ai-db psql -U taxmind -d taxmind_db < "$f"
+done
+```
+
+Admin padrão criado pela migration 100: `admin@tribus-ai.com.br`
+
+### 4. Ingestão inicial dos PDFs (opcional)
 
 ```bash
 python src/ingest/run_ingest.py
-```
-
-### 4. Executar migration do módulo Admin
-
-```bash
-docker exec -i tribus-ai-db \
-    psql -U taxmind -d taxmind_db \
-    < migrations/100_users_table.sql
-# Admin padrão: admin@tribus-ai.com.br
-# Trocar senha no primeiro acesso via painel ⚙️ Admin
 ```
 
 ### 5. Rodar os testes
 
 ```bash
 .venv/bin/python -m pytest tests/ -v --tb=short
-# 354 testes passando
+# 647 testes passando (referência Abril 2026)
 ```
 
 ### Comandos úteis
 
 ```bash
-docker compose down              # parar todos os serviços
-docker compose up -d             # subir novamente
-docker compose restart api       # reiniciar apenas a API
-docker compose logs api --tail 50  # ver logs da API
+docker compose down                        # parar todos os serviços
+docker compose up -d                       # subir novamente
+docker compose restart api                 # reiniciar apenas a API
+docker compose logs api --tail 50          # logs da API
 ```
+
+---
+
+## Deploy Produção
+
+### Requisitos no VPS
+- Docker + Docker Compose Plugin
+- Certificado SSL via Let's Encrypt
+
+### Primeiro deploy (uma vez)
+
+```bash
+git clone https://github.com/<org>/tribus-ai-light.git /opt/tribus-ai-light
+cd /opt/tribus-ai-light
+docker volume create taxmind_pgdata
+cp .env.prod.example .env.prod
+# Preencher .env.prod com valores reais
+certbot certonly --standalone -d tribus-ai.com.br -d www.tribus-ai.com.br
+bash deploy.sh
+```
+
+### Redeploy
+
+```bash
+cd /opt/tribus-ai-light && bash redeploy.sh
+```
+
+### Logs em produção
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f
+```
+
+---
 
 ## Arquitetura
 
 ```
-PDF (upload ou PDF_SOURCE_DIR)
+PDF (upload via UI ou PDF_SOURCE_DIR)
       │
       ▼
   loader.py ──► pdfplumber ──► texto extraído
       │
       ▼
- chunker.py ──► chunking hierárquico (artigo → parágrafo → sliding window)
+ chunker.py ──► chunking jurídico hierárquico (artigo → parágrafo → sliding window)
       │
       ▼
  embedder.py ──► voyage-3 (batch 32, retry 3x)
@@ -141,124 +184,107 @@ PostgreSQL/pgvector ──► HNSW index (1024 dim)
  engine.py (cognitivo) ──► Claude LLM com anti-alucinação (M1-M4)
       │
       ▼
- Streamlit UI ◄──► FastAPI (19+ endpoints)
+Next.js UI ◄──► FastAPI (40+ endpoints REST)
+      │
+      ▼
+nginx ──► HTTPS ──► tribus-ai.com.br
 ```
+
+---
 
 ## Estrutura de Pastas
 
 ```
 tribus-ai-light/
-├── Dockerfile
-├── docker-compose.yml
-├── .env
-├── requirements.txt
-├── db/
-│   └── init.sql
+├── Dockerfile                     # Imagem backend FastAPI
+├── docker-compose.yml             # Dev: db + api + ui
+├── docker-compose.prod.yml        # Prod: db + api + ui + nginx
+├── deploy.sh                      # Deploy inicial (build + up)
+├── redeploy.sh                    # Redeploy (pull + build + up)
+├── nginx/nginx.conf               # Reverse proxy HTTPS
+├── .env.prod.example              # Template de variáveis de produção
+├── auth.py                        # Autenticação JWT + bcrypt
+├── frontend/                      # ⭐ UI ATIVA — Next.js 16 App Router
+│   ├── app/
+│   │   ├── (auth)/login/          # Login split-layout
+│   │   └── (app)/                 # Rotas autenticadas
+│   │       ├── analisar/          # Análise RAG principal
+│   │       ├── consultar/         # Consulta rápida
+│   │       ├── protocolo/         # Protocolo P1→P6
+│   │       ├── simuladores/       # Simuladores tributários
+│   │       ├── documentos/        # Outputs acionáveis
+│   │       └── base-conhecimento/ # Upload + monitor fontes
+│   ├── components/
+│   │   ├── layout/                # AuthGuard, Sidebar, AdminGuard
+│   │   ├── protocolo/             # P1..P6 components
+│   │   ├── simuladores/           # Simuladores components
+│   │   └── shared/                # Card, Badge, PainelGovernança, AnalysisLoading
+│   └── lib/api.ts                 # axios instance (Bearer + X-Api-Key)
 ├── src/
-│   ├── api/
-│   │   └── main.py              # FastAPI — 19+ endpoints
-│   ├── cognitive/
-│   │   └── engine.py            # Motor cognitivo (Claude LLM)
-│   ├── db/
-│   │   └── pool.py              # Connection pool centralizado (ThreadedConnectionPool)
-│   ├── ingest/
-│   │   ├── loader.py            # Extração de texto dos PDFs
-│   │   ├── chunker.py           # Chunking jurídico hierárquico
-│   │   ├── embedder.py          # Embeddings voyage-3
-│   │   └── run_ingest.py        # Pipeline de ingestão
-│   ├── monitor/
-│   │   ├── checker.py           # Verificação de fontes oficiais
-│   │   └── sources.py           # Detectores por tipo de fonte
-│   ├── observability/
-│   │   ├── collector.py         # Métricas de uso
-│   │   ├── drift.py             # Detecção de drift (2σ)
-│   │   ├── regression.py        # Regression testing
-│   │   └── usage.py             # Rastreamento de consumo de API
-│   ├── outputs/
-│   │   ├── engine.py            # Geração de documentos (5 classes)
-│   │   ├── materialidade.py     # Cálculo de materialidade
-│   │   └── stakeholders.py      # Decomposição por stakeholder
-│   ├── protocol/
-│   │   ├── engine.py            # Máquina de estados (6 passos)
-│   │   └── carimbo.py           # Detector de terceirização cognitiva
-│   ├── quality/
-│   │   └── engine.py            # DataQualityEngine (BL-01, BL-02, BL-03)
-│   ├── integrity/
-│   │   └── lockfile_manager.py  # Prompt Integrity Lockfile (RDM-029)
-│   └── rag/
-│       ├── retriever.py         # Retrieval híbrido (vetorial + BM25)
-│       ├── spd.py               # SPD-RAG multi-norma
-│       ├── adaptive.py          # Classificação de query (FACTUAL/INTERPRETATIVA/COMPARATIVA)
-│       ├── hyde.py              # HyDE — Hypothetical Document Embeddings (RDM-020)
-│       ├── multi_query.py       # Multi-Query Retrieval (RDM-024)
-│       ├── step_back.py         # Step-Back Prompting (RDM-025)
-│       ├── prompt_loader.py     # Progressive loading do system prompt
-│       ├── corrector.py         # CRAG — Corrective RAG
-│       ├── decomposer.py        # Decomposição de queries complexas
-│       ├── ptf.py               # Período Temporal Fiscal
-│       └── validacao.py         # Validação de documentos
-├── auth.py                      # Autenticação JWT + bcrypt + trial
-├── admin.py                     # Painel admin (Streamlit)
-├── pages/
-│   └── login.py                 # Tela de login
-├── components/
-│   └── trial_banner.py          # Banner de trial (30 dias)
-├── migrations/
-│   └── 100_users_table.sql      # Tabela users + user_id em ai_interactions
-├── ui/
-│   └── app.py                   # Streamlit (5 abas: + ⚙️ Admin para ADMIN)
+│   ├── api/main.py                # FastAPI — 40+ endpoints REST
+│   ├── cognitive/engine.py        # Motor cognitivo (Claude LLM)
+│   ├── rag/                       # retriever, hyde, multi_query, step_back, spd…
+│   ├── outputs/                   # 5 classes de output + stakeholders
+│   ├── protocol/                  # Engine P1→P6 + carimbo
+│   ├── observability/             # Métricas + drift + regression
+│   ├── monitor/                   # Monitor DOU/PGFN/RFB/SIJUT2
+│   ├── ingest/                    # Pipeline ingestão assíncrona
+│   └── db/pool.py                 # ThreadedConnectionPool
+├── migrations/                    # NNN_descricao.sql (última: 117)
 └── tests/
-    ├── unit/                    # Testes unitários
-    └── test_auth.py             # 19 testes de autenticação (354 total)
+    ├── unit/                      # Mocks obrigatórios (sem chamadas externas)
+    └── integration/               # 647 testes passando (Abril 2026)
 ```
+
+---
 
 ## Protocolo de Decisão — 6 Passos
 
 | Passo | Nome | Responsável |
 |-------|------|-------------|
-| 1 | Registrar & Classificar | Usuário |
-| 2 | Estruturar riscos e dados | Usuário |
-| 3 | Análise tributária | Tribus-AI (RAG + LLM) |
-| 4 | Posição do gestor (hipótese) | Usuário |
-| 5 | Decidir | Usuário (com recomendação Tribus-AI) |
-| 6 | Ciclo Pós-Decisão | Usuário |
+| P1 | Registrar & Classificar | Usuário |
+| P2 | Estruturar riscos e dados | Usuário |
+| P3 | Análise tributária | Tribus-AI (RAG + LLM) |
+| P4 | Posição do gestor (hipótese) | Usuário |
+| P5 | Decidir | Usuário (com recomendação Tribus-AI) |
+| P6 | Ciclo Pós-Decisão | Usuário |
+
+---
 
 ## API — Principais Endpoints
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | GET | `/v1/health` | Status do sistema |
-| GET | `/v1/credits` | Saldo de créditos de API |
+| POST | `/v1/auth/login` | Autenticação (público) |
 | POST | `/v1/analyze` | Consulta RAG + LLM |
 | GET | `/v1/chunks` | Busca de chunks |
 | POST | `/v1/ingest/upload` | Upload assíncrono de PDF |
 | POST | `/v1/ingest/check-duplicate` | Verificação de duplicidade |
 | GET | `/v1/ingest/jobs/{job_id}` | Polling de ingestão |
-| GET | `/v1/ingest/normas` | Listar documentos na base |
-| DELETE | `/v1/ingest/normas/{norma_id}` | Remover documento da base |
 | POST | `/v1/cases` | Criar caso |
 | GET | `/v1/cases` | Listar casos |
-| GET | `/v1/cases/{id}` | Detalhes do caso |
 | POST | `/v1/cases/{id}/steps/{passo}` | Submeter passo |
-| POST | `/v1/cases/{id}/carimbo/confirmar` | Confirmar independência decisória |
-| GET | `/v1/cases/{id}/outputs` | Documentos do caso |
 | POST | `/v1/outputs` | Gerar documento acionável |
 | POST | `/v1/outputs/{id}/aprovar` | Aprovar documento |
 | GET | `/v1/observability/metrics` | Métricas de uso |
 | GET | `/v1/observability/drift` | Detecção de drift |
-| POST | `/v1/observability/regression` | Validação automática |
-| POST | `/v1/observability/baseline` | Registrar referência |
-| GET | `/v1/observability/budget-pressure` | Budget de contexto |
 | POST | `/v1/monitor/verificar` | Verificar fontes oficiais |
-| GET | `/v1/monitor/pendentes` | Documentos pendentes |
-| GET | `/v1/monitor/contagem` | Contagem de novos docs |
+| GET | `/v1/billing/mau` | MAU por tenant/mês |
 
-## UX
+---
 
-- Todos os campos possuem tooltip (?) imediatamente ao lado do label com explicação sobre o campo
-- Placeholders genéricos orientativos (sem exemplos que enviezem o preenchimento)
-- Hot-reload: edições no código local refletem no browser com refresh (volume mount Docker)
-- Aba "Qualidade do Sistema" oculta durante fase de testes com usuários (reativável no código)
+## Autenticação
+
+| Campo | Detalhe |
+|-------|---------|
+| Perfis | `ADMIN` (visão global) / `USER` (isolamento de tenant) |
+| Autenticação | JWT HS256, expiração 8h |
+| Senhas | bcrypt rounds=12 |
+| Trial | 30 dias a partir do primeiro login (`primeiro_uso`) |
+| Admin padrão | admin@tribus-ai.com.br |
+
+---
 
 ## Regras do Projeto
 
@@ -270,13 +296,4 @@ tribus-ai-light/
 - Anti-alucinação: 4 mecanismos (M1-M4) em toda resposta do LLM
 - Secrets via variável de ambiente — nunca hardcoded
 - Toda query de USER em `ai_interactions` filtrada por `user_id` (isolamento de tenant)
-
-## Autenticação
-
-| Campo | Detalhe |
-|-------|---------|
-| Perfis | `ADMIN` (visão global) / `USER` (isolamento de tenant) |
-| Autenticação | JWT HS256, expiração 8h |
-| Senhas | bcrypt rounds=12 |
-| Trial | 30 dias a partir do primeiro login (`primeiro_uso`) |
-| Admin padrão | admin@tribus-ai.com.br — trocar senha no primeiro acesso |
+- Streamlit (`ui/app.py`) é **legado** — não adicionar features, substituído pelo Next.js
