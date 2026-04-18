@@ -56,7 +56,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from src.api.auth_api import verificar_token_api
-from auth import autenticar, buscar_usuario_por_email
+from auth import autenticar, buscar_usuario_por_email, gerar_hash_senha, gerar_token
+from src.email_service import enviar_email_confirmacao
 
 from src.cognitive.engine import MODEL_DEV, AnaliseResult, analisar
 from src.cognitive.detector_carimbo import detectar_carimbo as _detectar_carimbo_lexico
@@ -2078,6 +2079,526 @@ def admin_metricas():
         }
     except Exception as e:
         logger.error("Erro em /v1/admin/metricas: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTO-CADASTRO E VERIFICAÇÃO DE E-MAIL
+# ─────────────────────────────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    nome:          str = Field(..., min_length=2, max_length=100)
+    email:         str = Field(..., description="E-mail do usuário")
+    senha:         str = Field(..., min_length=6, max_length=128)
+    razao_social:  str = Field(..., min_length=2, max_length=255)
+    cnpj_raiz:     Optional[str] = Field(None, description="8 dígitos numéricos")
+    lgpd_consent:  bool = Field(..., description="Consentimento LGPD obrigatório")
+
+    @field_validator("lgpd_consent")
+    @classmethod
+    def lgpd_deve_ser_true(cls, v: bool) -> bool:
+        if not v:
+            raise ValueError("O consentimento LGPD é obrigatório para o cadastro.")
+        return v
+
+    @field_validator("cnpj_raiz")
+    @classmethod
+    def validar_cnpj_raiz(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        cnpj = re.sub(r"\D", "", v)
+        if len(cnpj) != 8:
+            raise ValueError("cnpj_raiz deve conter exatamente 8 dígitos numéricos.")
+        return cnpj
+
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, v: str) -> str:
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("E-mail inválido.")
+        return v.lower().strip()
+
+
+@app.post("/v1/auth/register")
+@limiter.limit("3/minute")
+def register(request: Request, req: RegisterRequest, background_tasks: BackgroundTasks):
+    """
+    Auto-cadastro público — cria tenant + usuário em trial de 7 dias.
+    Público (sem X-API-Key). Rate-limited: 3 req/min por IP.
+    Conta fica inativa até confirmação por e-mail.
+    """
+    logger.info("POST /v1/auth/register email=%s", req.email)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        # Verificar e-mail único
+        cur.execute("SELECT id FROM users WHERE email = %s LIMIT 1", (req.email,))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="E-mail já cadastrado.")
+
+        # Verificar CNPJ único (se fornecido)
+        cnpj = req.cnpj_raiz or str(uuid.uuid4().hex[:8])  # CNPJ gerado se ausente
+        if req.cnpj_raiz:
+            cur.execute("SELECT id FROM tenants WHERE cnpj_raiz = %s LIMIT 1", (cnpj,))
+            if cur.fetchone():
+                raise HTTPException(status_code=409, detail="CNPJ já cadastrado.")
+
+        tenant_id   = str(uuid.uuid4())
+        user_id     = str(uuid.uuid4())
+        email_token = str(uuid.uuid4())
+        senha_hash  = gerar_hash_senha(req.senha)
+
+        # Criar tenant
+        cur.execute("""
+            INSERT INTO tenants (id, cnpj_raiz, razao_social, status, plano,
+                                 trial_starts_at, trial_ends_at, subscription_status)
+            VALUES (%s, %s, %s, 'active', 'starter',
+                    NOW(), NOW() + INTERVAL '7 days', 'trial')
+        """, (tenant_id, cnpj, req.razao_social))
+
+        # Criar usuário (inativo até verificar e-mail)
+        cur.execute("""
+            INSERT INTO users (id, email, nome, senha_hash, perfil, ativo, tenant_id,
+                               lgpd_consent, lgpd_consent_at, email_verificado, email_token)
+            VALUES (%s, %s, %s, %s, 'USER', FALSE, %s,
+                    %s, NOW(), FALSE, %s)
+        """, (user_id, req.email, req.nome, senha_hash, tenant_id,
+              req.lgpd_consent, email_token))
+
+        conn.commit()
+        cur.close()
+
+        # Enviar e-mail de confirmação em background (não bloqueia response)
+        background_tasks.add_task(enviar_email_confirmacao, req.email, req.nome, email_token)
+
+        return {
+            "message": "Cadastro realizado com sucesso! Verifique seu e-mail para ativar a conta.",
+            "email": req.email,
+        }
+
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/auth/register: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+@app.get("/v1/auth/verify-email")
+def verify_email(token: str = Query(..., description="Token de verificação enviado por e-mail")):
+    """
+    Confirma o e-mail e ativa a conta. Retorna JWT para login automático.
+    Público (sem X-API-Key).
+    """
+    logger.info("GET /v1/auth/verify-email token=%s", token[:8] + "...")
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT id, email, nome, perfil, tenant_id FROM users WHERE email_token = %s LIMIT 1",
+            (token,),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Token inválido ou já utilizado.")
+
+        user_id, email, nome, perfil, tenant_id = row
+
+        cur.execute(
+            "UPDATE users SET ativo = TRUE, email_verificado = TRUE, email_token = NULL WHERE id = %s",
+            (str(user_id),),
+        )
+        conn.commit()
+        cur.close()
+
+        # Gerar token JWT para login automático
+        from auth import Usuario
+        from datetime import timezone
+        usuario = Usuario(
+            id=str(user_id), email=email, nome=nome, perfil=perfil,
+            ativo=True, primeiro_uso=None, criado_em=datetime.now(timezone.utc),
+            tenant_id=str(tenant_id) if tenant_id else None,
+        )
+        jwt_token = gerar_token(usuario)
+
+        return {
+            "access_token": jwt_token,
+            "token_type": "bearer",
+            "user": {
+                "id":          str(user_id),
+                "email":       email,
+                "nome":        nome,
+                "perfil":      perfil,
+                "tenant_id":   str(tenant_id) if tenant_id else None,
+                "onboarding_step": 0,
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/auth/verify-email: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN — GESTÃO DE USUÁRIOS (SoD)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AdminCreateUserRequest(BaseModel):
+    nome:      str = Field(..., min_length=2, max_length=100)
+    email:     str = Field(..., description="E-mail do usuário")
+    senha:     str = Field(..., min_length=6, max_length=128)
+    perfil:    str = Field("USER", description="ADMIN ou USER")
+    tenant_id: Optional[str] = Field(None, description="UUID do tenant; None cria tenant próprio")
+
+    @field_validator("perfil")
+    @classmethod
+    def validar_perfil(cls, v: str) -> str:
+        if v not in ("ADMIN", "USER"):
+            raise ValueError("perfil deve ser ADMIN ou USER.")
+        return v
+
+    @field_validator("email")
+    @classmethod
+    def normalizar_email(cls, v: str) -> str:
+        return v.lower().strip()
+
+
+class AdminUpdateUserRequest(BaseModel):
+    nome:   Optional[str]  = Field(None, min_length=2, max_length=100)
+    perfil: Optional[str]  = Field(None)
+    ativo:  Optional[bool] = Field(None)
+
+    @field_validator("perfil")
+    @classmethod
+    def validar_perfil(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and v not in ("ADMIN", "USER"):
+            raise ValueError("perfil deve ser ADMIN ou USER.")
+        return v
+
+
+class AdminResetSenhaRequest(BaseModel):
+    nova_senha: str = Field(..., min_length=6, max_length=128)
+
+
+@app.get("/v1/admin/users", dependencies=[Depends(verificar_token_api)])
+def admin_list_users(
+    perfil: Optional[str] = Query(None, description="Filtrar por perfil (ADMIN/USER)"),
+    ativo:  Optional[bool] = Query(None, description="Filtrar por status ativo"),
+):
+    """Lista todos os usuários com filtros opcionais."""
+    logger.info("GET /v1/admin/users perfil=%s ativo=%s", perfil, ativo)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        conditions = []
+        params = []
+        if perfil is not None:
+            conditions.append("u.perfil = %s")
+            params.append(perfil.upper())
+        if ativo is not None:
+            conditions.append("u.ativo = %s")
+            params.append(ativo)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        cur.execute(f"""
+            SELECT u.id, u.email, u.nome, u.perfil, u.ativo,
+                   u.criado_em, u.primeiro_uso, u.email_verificado,
+                   t.razao_social, t.subscription_status, t.trial_ends_at
+            FROM users u
+            LEFT JOIN tenants t ON t.id = u.tenant_id
+            {where}
+            ORDER BY u.criado_em DESC
+        """, params)
+
+        rows = cur.fetchall()
+        cur.close()
+
+        users = []
+        for r in rows:
+            trial_ends = r[10]
+            users.append({
+                "id":                 str(r[0]),
+                "email":              r[1],
+                "nome":               r[2],
+                "perfil":             r[3],
+                "ativo":              r[4],
+                "criado_em":          r[5].isoformat() if r[5] else None,
+                "primeiro_uso":       r[6].isoformat() if r[6] else None,
+                "email_verificado":   r[7],
+                "empresa":            r[8],
+                "subscription_status": r[9],
+                "trial_ends_at":      trial_ends.isoformat() if trial_ends else None,
+            })
+        return {"users": users, "total": len(users)}
+
+    except Exception as e:
+        logger.error("Erro em /v1/admin/users GET: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+@app.post("/v1/admin/users", dependencies=[Depends(verificar_token_api)])
+def admin_create_user(req: AdminCreateUserRequest):
+    """Cria usuário diretamente pelo admin (sem validação de domínio, sem e-mail de verificação)."""
+    logger.info("POST /v1/admin/users email=%s", req.email)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM users WHERE email = %s LIMIT 1", (req.email,))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="E-mail já cadastrado.")
+
+        user_id    = str(uuid.uuid4())
+        senha_hash = gerar_hash_senha(req.senha)
+        tenant_id  = req.tenant_id
+
+        if tenant_id is None:
+            # Criar tenant mínimo para o usuário admin criado manualmente
+            tenant_id = str(uuid.uuid4())
+            cur.execute("""
+                INSERT INTO tenants (id, cnpj_raiz, razao_social, status, plano,
+                                     trial_starts_at, trial_ends_at, subscription_status)
+                VALUES (%s, %s, %s, 'active', 'starter',
+                        NOW(), NOW() + INTERVAL '7 days', 'trial')
+            """, (tenant_id, str(uuid.uuid4().hex[:8]), req.nome))
+
+        cur.execute("""
+            INSERT INTO users (id, email, nome, senha_hash, perfil, ativo, tenant_id,
+                               email_verificado, lgpd_consent)
+            VALUES (%s, %s, %s, %s, %s, TRUE, %s, TRUE, FALSE)
+        """, (user_id, req.email, req.nome, senha_hash, req.perfil, tenant_id))
+
+        conn.commit()
+        cur.close()
+
+        return {"id": user_id, "email": req.email, "nome": req.nome, "perfil": req.perfil}
+
+    except HTTPException:
+        if conn:
+            conn.rollback()
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/admin/users POST: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+@app.patch("/v1/admin/users/{user_id}", dependencies=[Depends(verificar_token_api)])
+def admin_update_user(user_id: str, req: AdminUpdateUserRequest):
+    """Atualiza nome, perfil ou status ativo de um usuário."""
+    logger.info("PATCH /v1/admin/users/%s", user_id)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM users WHERE id = %s LIMIT 1", (user_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+        fields, params = [], []
+        if req.nome is not None:
+            fields.append("nome = %s")
+            params.append(req.nome)
+        if req.perfil is not None:
+            fields.append("perfil = %s")
+            params.append(req.perfil)
+        if req.ativo is not None:
+            fields.append("ativo = %s")
+            params.append(req.ativo)
+
+        if not fields:
+            raise HTTPException(status_code=422, detail="Nenhum campo para atualizar.")
+
+        params.append(user_id)
+        cur.execute(f"UPDATE users SET {', '.join(fields)} WHERE id = %s", params)
+        conn.commit()
+        cur.close()
+        return {"ok": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/admin/users PATCH: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+@app.post("/v1/admin/users/{user_id}/reset-senha", dependencies=[Depends(verificar_token_api)])
+def admin_reset_senha(user_id: str, req: AdminResetSenhaRequest):
+    """Redefine a senha de um usuário."""
+    logger.info("POST /v1/admin/users/%s/reset-senha", user_id)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("SELECT id FROM users WHERE id = %s LIMIT 1", (user_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Usuário não encontrado.")
+
+        novo_hash = gerar_hash_senha(req.nova_senha)
+        cur.execute("UPDATE users SET senha_hash = %s WHERE id = %s", (novo_hash, user_id))
+        conn.commit()
+        cur.close()
+        return {"ok": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/admin/users reset-senha: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN — MAILING (trial expirado não convertido + lgpd_consent)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/v1/admin/mailing", dependencies=[Depends(verificar_token_api)])
+def admin_mailing(
+    status: Optional[str] = Query(None, description="Filtrar: trial_ativo, trial_expirado, convertido, cancelado"),
+):
+    """
+    Lista todos os usuários com lgpd_consent=true para uso como mailing.
+    Inclui status do trial para identificar não-convertidos.
+    """
+    logger.info("GET /v1/admin/mailing status=%s", status)
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        status_filter = ""
+        params: list = []
+
+        if status == "trial_ativo":
+            status_filter = "AND t.subscription_status = 'trial' AND t.trial_ends_at >= NOW()"
+        elif status == "trial_expirado":
+            status_filter = "AND t.subscription_status = 'trial' AND t.trial_ends_at < NOW()"
+        elif status == "convertido":
+            status_filter = "AND t.subscription_status = 'active'"
+        elif status == "cancelado":
+            status_filter = "AND t.subscription_status IN ('canceled', 'past_due')"
+
+        cur.execute(f"""
+            SELECT u.id, u.email, u.nome, u.criado_em,
+                   t.razao_social, t.subscription_status, t.trial_ends_at, t.trial_starts_at
+            FROM users u
+            JOIN tenants t ON t.id = u.tenant_id
+            WHERE u.lgpd_consent = TRUE
+            {status_filter}
+            ORDER BY u.criado_em DESC
+        """, params)
+
+        rows = cur.fetchall()
+        cur.close()
+
+        records = []
+        for r in rows:
+            trial_ends = r[6]
+            trial_expired = trial_ends is not None and trial_ends < datetime.now(trial_ends.tzinfo)
+            records.append({
+                "id":                  str(r[0]),
+                "email":               r[1],
+                "nome":                r[2],
+                "criado_em":           r[3].isoformat() if r[3] else None,
+                "empresa":             r[4],
+                "subscription_status": r[5],
+                "trial_ends_at":       trial_ends.isoformat() if trial_ends else None,
+                "trial_expirado":      trial_expired,
+            })
+        return {"records": records, "total": len(records)}
+
+    except Exception as e:
+        logger.error("Erro em /v1/admin/mailing: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+@app.get("/v1/admin/mailing/export", dependencies=[Depends(verificar_token_api)])
+def admin_mailing_export():
+    """Exporta lista de mailing em CSV (lgpd_consent=true)."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    logger.info("GET /v1/admin/mailing/export")
+    conn = None
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT u.nome, u.email, t.razao_social,
+                   u.criado_em, t.trial_ends_at, t.subscription_status
+            FROM users u
+            JOIN tenants t ON t.id = u.tenant_id
+            WHERE u.lgpd_consent = TRUE
+            ORDER BY u.criado_em DESC
+        """)
+        rows = cur.fetchall()
+        cur.close()
+
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["nome", "email", "empresa", "cadastrado_em", "trial_expira_em", "status"])
+        for r in rows:
+            writer.writerow([
+                r[0], r[1], r[2],
+                r[3].isoformat() if r[3] else "",
+                r[4].isoformat() if r[4] else "",
+                r[5] or "",
+            ])
+
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=mailing_tribus.csv"},
+        )
+
+    except Exception as e:
+        logger.error("Erro em /v1/admin/mailing/export: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
     finally:
         if conn:

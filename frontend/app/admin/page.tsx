@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { Users, Activity, FileText, Shield } from "lucide-react";
 import { Card } from "@/components/shared/Card";
+import { AdminNav } from "@/components/admin/AdminNav";
 import api from "@/lib/api";
 
 interface AdminMetricas {
@@ -31,6 +32,8 @@ export default function AdminPage() {
         <Shield size={20} className="text-primary" />
         <h1 className="text-2xl font-semibold">Painel Admin</h1>
       </div>
+
+      <AdminNav />
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {CARDS.map(({ label, key, icon: Icon }) => (
