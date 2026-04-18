@@ -2090,12 +2090,13 @@ def admin_metricas():
 # ─────────────────────────────────────────────────────────────────────────────
 
 class RegisterRequest(BaseModel):
-    nome:          str = Field(..., min_length=2, max_length=100)
-    email:         str = Field(..., description="E-mail do usuário")
-    senha:         str = Field(..., min_length=6, max_length=128)
-    razao_social:  str = Field(..., min_length=2, max_length=255)
-    cnpj_raiz:     Optional[str] = Field(None, description="8 dígitos numéricos")
-    lgpd_consent:  bool = Field(..., description="Consentimento LGPD obrigatório")
+    nome:              str  = Field(..., min_length=2, max_length=100)
+    email:             str  = Field(..., description="E-mail do usuário")
+    senha:             str  = Field(..., min_length=6, max_length=128)
+    razao_social:      str  = Field(..., min_length=2, max_length=255)
+    cnpj_raiz:         Optional[str] = Field(None, description="CPF (11 dígitos) ou CNPJ (14 dígitos)")
+    lgpd_consent:      bool = Field(..., description="Aceite do tratamento de dados LGPD (obrigatório)")
+    marketing_consent: bool = Field(False, description="Opt-in para comunicações de marketing (opcional)")
 
     @field_validator("lgpd_consent")
     @classmethod
@@ -2164,11 +2165,12 @@ def register(request: Request, req: RegisterRequest, background_tasks: Backgroun
         # Criar usuário (inativo até verificar e-mail)
         cur.execute("""
             INSERT INTO users (id, email, nome, senha_hash, perfil, ativo, tenant_id,
-                               lgpd_consent, lgpd_consent_at, email_verificado, email_token)
+                               lgpd_consent, lgpd_consent_at, marketing_consent,
+                               email_verificado, email_token)
             VALUES (%s, %s, %s, %s, 'USER', FALSE, %s,
-                    %s, NOW(), FALSE, %s)
+                    %s, NOW(), %s, FALSE, %s)
         """, (user_id, req.email, req.nome, senha_hash, tenant_id,
-              req.lgpd_consent, email_token))
+              req.lgpd_consent, req.marketing_consent, email_token))
 
         conn.commit()
         cur.close()
@@ -2524,7 +2526,7 @@ def admin_mailing(
                    t.razao_social, t.subscription_status, t.trial_ends_at, t.trial_starts_at
             FROM users u
             JOIN tenants t ON t.id = u.tenant_id
-            WHERE u.lgpd_consent = TRUE
+            WHERE u.marketing_consent = TRUE
             {status_filter}
             ORDER BY u.criado_em DESC
         """, params)
@@ -2573,7 +2575,7 @@ def admin_mailing_export():
                    u.criado_em, t.trial_ends_at, t.subscription_status
             FROM users u
             JOIN tenants t ON t.id = u.tenant_id
-            WHERE u.lgpd_consent = TRUE
+            WHERE u.marketing_consent = TRUE
             ORDER BY u.criado_em DESC
         """)
         rows = cur.fetchall()

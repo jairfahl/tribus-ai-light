@@ -15,12 +15,13 @@ const schema = z.object({
   senha:            z.string().min(6, "Senha deve ter ao menos 6 caracteres"),
   confirmar_senha:  z.string().min(1, "Confirme sua senha"),
   razao_social:     z.string().min(2, "Informe o nome da empresa"),
-  documento:        z.string().optional().refine(
+  documento:          z.string().optional().refine(
     (v) => !v || [11, 14].includes(v.replace(/\D/g, "").length),
     "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
   ),
-  lgpd_consent:     z.boolean().refine((v) => v === true, {
-    message: "O consentimento é obrigatório para o cadastro.",
+  marketing_consent:  z.boolean().optional(),
+  lgpd_consent:       z.boolean().refine((v) => v === true, {
+    message: "Você precisa aceitar o tratamento de dados para continuar.",
   }),
 }).refine((d) => d.senha === d.confirmar_senha, {
   message: "As senhas não coincidem.",
@@ -81,8 +82,9 @@ export default function RegisterPage() {
         email:        data.email,
         senha:        data.senha,
         razao_social: data.razao_social,
-        cnpj_raiz:    data.documento ? data.documento.replace(/\D/g, "") : undefined,
-        lgpd_consent: data.lgpd_consent,
+        cnpj_raiz:         data.documento ? data.documento.replace(/\D/g, "") : undefined,
+        lgpd_consent:      data.lgpd_consent,
+        marketing_consent: data.marketing_consent ?? false,
       });
       setSucesso(true);
     } catch (err: unknown) {
@@ -344,23 +346,40 @@ export default function RegisterPage() {
                     {errors.documento && <p className="text-xs text-red-500 mt-1">{errors.documento.message}</p>}
                   </div>
 
-                  {/* Checkbox LGPD */}
-                  <div className="flex items-start gap-3 pt-1">
-                    <input
-                      {...register("lgpd_consent")}
-                      type="checkbox"
-                      id="lgpd"
-                      className="mt-0.5 w-4 h-4 rounded border-slate-300 accent-blue-600 cursor-pointer shrink-0"
-                    />
-                    <label htmlFor="lgpd" className="text-xs leading-relaxed cursor-pointer" style={{ color: "#64748b" }}>
-                      Concordo em receber comunicações da Tribus-AI e autorizo o uso dos meus dados
-                      conforme a{" "}
-                      <span className="font-semibold" style={{ color: "#2E75B6" }}>LGPD (Lei 13.709/2018)</span>.
-                    </label>
+                  {/* Checkboxes de consentimento */}
+                  <div className="space-y-3 pt-1">
+                    {/* Marketing — opcional */}
+                    <div className="flex items-start gap-3">
+                      <input
+                        {...register("marketing_consent")}
+                        type="checkbox"
+                        id="marketing"
+                        className="mt-0.5 w-4 h-4 rounded border-slate-300 accent-blue-600 cursor-pointer shrink-0"
+                      />
+                      <label htmlFor="marketing" className="text-xs leading-relaxed cursor-pointer" style={{ color: "#64748b" }}>
+                        Concordo em receber comunicações e novidades da Tribus-AI por e-mail.{" "}
+                        <span style={{ color: "#94a3b8" }}>(opcional)</span>
+                      </label>
+                    </div>
+
+                    {/* LGPD — obrigatório */}
+                    <div className="flex items-start gap-3">
+                      <input
+                        {...register("lgpd_consent")}
+                        type="checkbox"
+                        id="lgpd"
+                        className="mt-0.5 w-4 h-4 rounded border-slate-300 accent-blue-600 cursor-pointer shrink-0"
+                      />
+                      <label htmlFor="lgpd" className="text-xs leading-relaxed cursor-pointer" style={{ color: "#64748b" }}>
+                        Autorizo o tratamento dos meus dados conforme a{" "}
+                        <span className="font-semibold" style={{ color: "#2E75B6" }}>LGPD (Lei 13.709/2018)</span>.{" "}
+                        <span className="font-semibold" style={{ color: "#dc2626" }}>*</span>
+                      </label>
+                    </div>
+                    {errors.lgpd_consent && (
+                      <p className="text-xs text-red-500">{errors.lgpd_consent.message}</p>
+                    )}
                   </div>
-                  {errors.lgpd_consent && (
-                    <p className="text-xs text-red-500 -mt-2">{errors.lgpd_consent.message}</p>
-                  )}
 
                   {/* Erro geral */}
                   {erro && (
