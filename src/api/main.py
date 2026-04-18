@@ -2109,10 +2109,10 @@ class RegisterRequest(BaseModel):
     def validar_cnpj_raiz(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return v
-        cnpj = re.sub(r"\D", "", v)
-        if len(cnpj) != 8:
-            raise ValueError("cnpj_raiz deve conter exatamente 8 dígitos numéricos.")
-        return cnpj
+        digits = re.sub(r"\D", "", v)
+        if len(digits) not in (11, 14):
+            raise ValueError("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).")
+        return digits
 
     @field_validator("email")
     @classmethod

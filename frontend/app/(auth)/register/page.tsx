@@ -10,14 +10,21 @@ import { Input } from "@/components/ui/input";
 import api from "@/lib/api";
 
 const schema = z.object({
-  nome:         z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
-  email:        z.string().email("E-mail inválido"),
-  senha:        z.string().min(6, "Senha deve ter ao menos 6 caracteres"),
-  razao_social: z.string().min(2, "Informe o nome da empresa"),
-  cnpj_raiz:    z.string().regex(/^\d{8}$/, "CNPJ raiz deve ter 8 dígitos numéricos").optional().or(z.literal("")),
-  lgpd_consent: z.boolean().refine((v) => v === true, {
+  nome:             z.string().min(2, "Nome deve ter ao menos 2 caracteres"),
+  email:            z.string().email("E-mail inválido"),
+  senha:            z.string().min(6, "Senha deve ter ao menos 6 caracteres"),
+  confirmar_senha:  z.string().min(1, "Confirme sua senha"),
+  razao_social:     z.string().min(2, "Informe o nome da empresa"),
+  documento:        z.string().optional().refine(
+    (v) => !v || [11, 14].includes(v.replace(/\D/g, "").length),
+    "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
+  ),
+  lgpd_consent:     z.boolean().refine((v) => v === true, {
     message: "O consentimento é obrigatório para o cadastro.",
   }),
+}).refine((d) => d.senha === d.confirmar_senha, {
+  message: "As senhas não coincidem.",
+  path: ["confirmar_senha"],
 });
 type Form = z.infer<typeof schema>;
 
@@ -37,7 +44,26 @@ const BULLETS = [
 ];
 
 export default function RegisterPage() {
-  const [showPass, setShowPass] = useState(false);
+  const [showPass, setShowPass]         = useState(false);
+  const [showConfirm, setShowConfirm]   = useState(false);
+  const [docTipo, setDocTipo]           = useState<"CPF" | "CNPJ" | null>(null);
+
+  const formatarDocumento = (raw: string): string => {
+    const d = raw.replace(/\D/g, "").slice(0, 14);
+    if (d.length <= 11) {
+      // CPF: 000.000.000-00
+      return d
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d)/, "$1.$2")
+        .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+    }
+    // CNPJ: 00.000.000/0000-00
+    return d
+      .replace(/(\d{2})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1/$2")
+      .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+  };
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState(false);
 
@@ -55,7 +81,7 @@ export default function RegisterPage() {
         email:        data.email,
         senha:        data.senha,
         razao_social: data.razao_social,
-        cnpj_raiz:    data.cnpj_raiz || undefined,
+        cnpj_raiz:    data.documento ? data.documento.replace(/\D/g, "") : undefined,
         lgpd_consent: data.lgpd_consent,
       });
       setSucesso(true);
@@ -246,6 +272,31 @@ export default function RegisterPage() {
                     {errors.senha && <p className="text-xs text-red-500 mt-1">{errors.senha.message}</p>}
                   </div>
 
+                  {/* Confirmar Senha */}
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>
+                      Confirmar senha
+                    </label>
+                    <div className="relative">
+                      <Input
+                        {...register("confirmar_senha")}
+                        type={showConfirm ? "text" : "password"}
+                        placeholder="Repita a senha"
+                        className="h-11 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500/20 pr-11"
+                        autoComplete="new-password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowConfirm(!showConfirm)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
+                        aria-label={showConfirm ? "Ocultar senha" : "Mostrar senha"}
+                      >
+                        {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                    {errors.confirmar_senha && <p className="text-xs text-red-500 mt-1">{errors.confirmar_senha.message}</p>}
+                  </div>
+
                   {/* Empresa */}
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>
@@ -261,19 +312,36 @@ export default function RegisterPage() {
                     {errors.razao_social && <p className="text-xs text-red-500 mt-1">{errors.razao_social.message}</p>}
                   </div>
 
-                  {/* CNPJ (opcional) */}
+                  {/* CPF / CNPJ (opcional) */}
                   <div>
-                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color: "#475569" }}>
-                      CNPJ Raiz <span className="font-normal normal-case" style={{ color: "#94a3b8" }}>(8 dígitos, opcional)</span>
+                    <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2" style={{ color: "#475569" }}>
+                      CPF ou CNPJ
+                      {docTipo && (
+                        <span
+                          className="text-[10px] font-bold px-1.5 py-0.5 rounded"
+                          style={{ background: docTipo === "CPF" ? "#e0f2fe" : "#ede9fe", color: docTipo === "CPF" ? "#0369a1" : "#7c3aed" }}
+                        >
+                          {docTipo}
+                        </span>
+                      )}
+                      <span className="font-normal normal-case" style={{ color: "#94a3b8" }}>(opcional)</span>
                     </label>
                     <Input
-                      {...register("cnpj_raiz")}
+                      {...register("documento")}
                       type="text"
-                      placeholder="12345678"
-                      maxLength={8}
+                      placeholder="000.000.000-00 ou 00.000.000/0000-00"
+                      maxLength={18}
                       className="h-11 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:ring-blue-500/20"
+                      onChange={(e) => {
+                        const digits = e.target.value.replace(/\D/g, "");
+                        const formatted = formatarDocumento(e.target.value);
+                        e.target.value = formatted;
+                        setDocTipo(digits.length === 0 ? null : digits.length <= 11 ? "CPF" : "CNPJ");
+                        // sync react-hook-form com valor formatado
+                        (register("documento").onChange as (e: React.ChangeEvent<HTMLInputElement>) => void)(e);
+                      }}
                     />
-                    {errors.cnpj_raiz && <p className="text-xs text-red-500 mt-1">{errors.cnpj_raiz.message}</p>}
+                    {errors.documento && <p className="text-xs text-red-500 mt-1">{errors.documento.message}</p>}
                   </div>
 
                   {/* Checkbox LGPD */}
