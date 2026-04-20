@@ -67,10 +67,10 @@ export default function AssinarPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold mb-1" style={{ color: "#0f2040" }}>
+      <h1 className="text-2xl font-bold mb-1 text-foreground">
         Plano Starter
       </h1>
-      <p className="text-sm mb-6" style={{ color: "#64748b" }}>
+      <p className="text-sm mb-6 text-muted-foreground">
         Tudo que você precisa para decisões tributárias fundamentadas.
       </p>
 
@@ -78,14 +78,14 @@ export default function AssinarPage() {
         <div className="p-6">
           {/* Preço */}
           <div className="flex items-baseline gap-1 mb-6">
-            <span className="text-3xl font-extrabold" style={{ color: "#0f2040" }}>R$ 497</span>
-            <span className="text-sm" style={{ color: "#64748b" }}>/mês</span>
+            <span className="text-3xl font-extrabold text-foreground">R$ 497</span>
+            <span className="text-sm text-muted-foreground">/mês</span>
           </div>
 
           {/* Benefícios */}
           <ul className="space-y-3 mb-8">
             {BENEFICIOS.map((b) => (
-              <li key={b} className="flex items-center gap-2.5 text-sm" style={{ color: "#334155" }}>
+              <li key={b} className="flex items-center gap-2.5 text-sm text-foreground">
                 <CheckCircle size={14} className="text-emerald-500 shrink-0" />
                 {b}
               </li>
@@ -93,7 +93,7 @@ export default function AssinarPage() {
           </ul>
 
           {/* Seletor de pagamento */}
-          <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "#475569" }}>
+          <p className="text-xs font-semibold uppercase tracking-wider mb-3 text-foreground opacity-70">
             Forma de pagamento
           </p>
           <div className="flex gap-3 mb-6">
@@ -106,7 +106,7 @@ export default function AssinarPage() {
                 style={
                   billingType === tipo
                     ? { background: "#eff6ff", border: "1.5px solid #3b82f6", color: "#1d4ed8" }
-                    : { background: "#f8fafc", border: "1px solid #e2e8f0", color: "#64748b" }
+                    : { background: "var(--card)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }
                 }
               >
                 {tipo === "PIX" ? <Smartphone size={14} /> : <CreditCard size={14} />}
@@ -134,16 +134,16 @@ export default function AssinarPage() {
             {loading ? "Processando…" : "Assinar agora"}
           </Button>
 
-          <p className="text-center text-xs mt-4" style={{ color: "#94a3b8" }}>
+          <p className="text-center text-xs mt-4 text-muted-foreground">
             Você será redirecionado para a página de pagamento segura.
           </p>
         </div>
       </Card>
 
-      <p className="text-center text-xs mt-6" style={{ color: "#94a3b8" }}>
+      <p className="text-center text-xs mt-6 text-muted-foreground">
         Dúvidas?{" "}
         <a
-          href="https://wa.me/5511999700215?text=Quero+assinar+o+Orbis.tax"
+          href="https://wa.me/5511999700215?text=Ol%C3%A1%2C+acessei+o+Orbis.tax+e+tenho+interesse+em+saber+mais+do+app."
           target="_blank"
           rel="noopener noreferrer"
           className="underline"
