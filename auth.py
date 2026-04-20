@@ -8,6 +8,7 @@ busca de usuário no banco e registro do primeiro uso.
 import bcrypt
 import jwt
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from dataclasses import dataclass
@@ -43,6 +44,7 @@ class Usuario:
     primeiro_uso: Optional[datetime]
     criado_em:    datetime
     tenant_id:    Optional[str] = None
+    session_id:   Optional[str] = None
 
     @property
     def is_admin(self) -> bool:
@@ -92,7 +94,7 @@ def buscar_usuario_por_email(email: str) -> Optional[Usuario]:
       Usuario | None
     """
     sql = """
-        SELECT id, email, nome, perfil, ativo, primeiro_uso, criado_em, tenant_id
+        SELECT id, email, nome, perfil, ativo, primeiro_uso, criado_em, tenant_id, session_id
         FROM users
         WHERE email = %s
         LIMIT 1;
@@ -112,6 +114,7 @@ def buscar_usuario_por_email(email: str) -> Optional[Usuario]:
                 primeiro_uso=row["primeiro_uso"],
                 criado_em=row["criado_em"],
                 tenant_id=str(row["tenant_id"]) if row["tenant_id"] else None,
+                session_id=str(row["session_id"]) if row["session_id"] else None,
             )
 
 
@@ -237,11 +240,12 @@ def gerar_token(usuario: Usuario) -> str:
     expira = agora + timedelta(hours=JWT_EXPIRY_HOURS)
 
     payload = {
-        "sub":    usuario.id,
-        "email":  usuario.email,
-        "perfil": usuario.perfil,
-        "iat":    agora,
-        "exp":    expira,
+        "sub":        usuario.id,
+        "email":      usuario.email,
+        "perfil":     usuario.perfil,
+        "session_id": str(usuario.session_id) if usuario.session_id else None,
+        "iat":        agora,
+        "exp":        expira,
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
 
@@ -309,6 +313,14 @@ def autenticar(email: str, senha: str) -> tuple[Optional[str], Optional[str]]:
     # 5. Registrar primeiro uso (no-op se já registrado)
     registrar_primeiro_uso(usuario.id)
 
-    # 6. Gerar token
+    # 6. Regenerar session_id — invalida qualquer sessão anterior
+    novo_session_id = str(uuid.uuid4())
+    with _get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("UPDATE users SET session_id = %s WHERE id = %s", (novo_session_id, usuario.id))
+        conn.commit()
+    usuario.session_id = novo_session_id
+
+    # 7. Gerar token
     token = gerar_token(usuario)
     return token, None
