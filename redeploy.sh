@@ -12,7 +12,7 @@ echo "==> Pulling latest code..."
 git pull origin main
 
 echo "==> Building and restarting containers..."
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build api ui
+docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --build api ui nginx
 
 echo "==> Waiting for startup..."
 sleep 15
