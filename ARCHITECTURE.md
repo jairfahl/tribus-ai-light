@@ -1,5 +1,5 @@
 # Orbis.tax — Architecture Reference
-**Versão:** 2.6
+**Versão:** 2.7
 **Atualizado em:** Abril 2026
 **Mantido por:** PO (Jair)
 
@@ -35,7 +35,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ├── frontend/                 ← ⭐ UI ATIVA — Next.js 16 App Router
 │   ├── app/
 │   │   ├── route.ts              ← Redirect raiz → /analisar
-│   │   ├── globals.css           ← Tailwind v4 + tokens shadcn + UI Upgrade overrides + dark mode
+│   │   ├── globals.css           ← Tailwind v4 + tokens shadcn + UI Upgrade overrides + dark mode + tm-card-warning/danger/tm-text-warning/danger
 │   │   ├── (auth)/
 │   │   │   ├── login/page.tsx        ← Login com split-layout + link "Recuperar senha" no rodapé e no card de erro
 │   │   │   ├── register/page.tsx     ← Cadastro: Zod senha forte + LGPD + asteriscos obrigatórios + SenhaRequisitos sempre visível
@@ -331,6 +331,10 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | ISS-20: Data de revisão em guias.ts | ✅ Implementado | ULTIMA_REVISAO = "Abril 2026" |
 | UI Upgrade — Sidebar dark navy | ✅ Implementado | bg #1a2f4e, texto branco, active item gradient + borda 3px accent-vivid |
 | UI Upgrade — globals.css tokens | ✅ Implementado | --shadow-card, --gradient-primary, --color-accent-vivid, dark mode CSS media query |
+| UX/UI Redesign — contraste | ✅ Implementado | tm-card-warning/danger + tm-text-warning/danger; hardcoded colors removidos (Sidebar, analisar, FluxoDocumentacao, CalculadoraIS, SimuladorReestruturacao) |
+| UX/UI Redesign — responsive | ✅ Implementado | Sidebar logo h-20 sm:h-24; GuiaSimulador grid-cols-1 sm:...; SimuladorReestruturacao grid-cols-2→lg:grid-cols-5 |
+| UX/UI Redesign — landing page | ✅ Implementado | Pricing cards contraste; WhatsApp CTA → 5511972521970 (landing/index.html + public/landing-page.html) |
+| Disclaimer obrigatório /analisar | ✅ Implementado | Texto estático entre saidas_stakeholders e CTADocumentar — ESP-06 §2.2 item 6 |
 | UI Upgrade — Login split-layout | ✅ Implementado | Painel esquerdo navy (desktop) + bullets de valor + form branco direita |
 | UI Upgrade — AnalysisLoading spinner | ✅ Implementado | SVG spinner marca + mensagens rotativas a cada 3s |
 | UI Upgrade — PainelGovernança Shield | ✅ Implementado | Header com ícone Shield, cada métrica em card colorido |

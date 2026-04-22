@@ -1,5 +1,5 @@
 # Orbis.tax — Instruções para Claude Code
-**Versão:** 2.6 | **Atualizado em:** Abril 2026
+**Versão:** 2.7 | **Atualizado em:** Abril 2026
 
 > Este arquivo é lido automaticamente pelo Claude Code a cada sessão.
 > Não remover. Atualizar sempre que houver decisões arquiteturais novas.
@@ -95,6 +95,8 @@ Só prosseguir após concluir os 3 passos acima.
 - **Card.tsx:** prop `clickable` ativa hover lift; sem prop = apenas sombra estática
 - **AnalysisLoading:** componente `"use client"` — depende de `useEffect` para mensagens rotativas
 - **Texto adaptável ao tema:** usar `text-foreground` / `text-muted-foreground` — nunca `style={{ color: "#..." }}` para texto de conteúdo
+- **Cards de estado semânticos:** usar `.tm-card-warning` / `.tm-card-danger` + `.tm-text-warning` / `.tm-text-danger` (definidos em `globals.css`) — nunca `bg-amber-50`, `bg-red-50`, `text-amber-700`, `text-red-600` hardcoded em alertas/erros
+- **Disclaimer em /analisar:** exibir sempre entre saidas_stakeholders e CTADocumentar (ESP-06 §2.2) — texto estático, não removível
 
 ---
 
@@ -222,13 +224,18 @@ mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 | **UI Upgrade — /assinar dark mode fix (text-foreground / text-muted-foreground)** | ✅ |
 | **Deploy VPS Hostinger** | ✅ Produção no ar — https://orbis.tax |
 | **SEC-09 BYPASS_AUTH=False** | ✅ Confirmado: FastAPI ativo não tem BYPASS_AUTH |
-| **SEC-10 IDs sequenciais → UUID (cases/outputs)** | ⏳ Pendente — migration 118 criada e dry-run validado; swap PK/FK requer janela de manutenção |
+| **SEC-10 IDs sequenciais → UUID (cases/outputs)** | ⏳ Em andamento — migration 126 SWAP finalizada; type annotations int→str em carimbo.py + testes atualizados; deploy em prod requer janela de manutenção |
 | **Fix produção — landing page raiz (route.ts + landing-page.html)** | ✅ Corrigido 2026-04-15 |
 | **Fluxo de cadastro completo** | ✅ /register → Resend email → /verify-email → /analisar |
 | **Validação senha forte** | ✅ Zod (frontend) + Pydantic @field_validator (backend): 8+ chars, maiúsc, minúsc, número, especial |
 | **E-mail transacional — Resend** | ✅ Domínio orbis.tax verificado, DKIM configurado, RESEND_API_KEY em .env.prod |
 | **Asaas billing integrado** | ✅ /assinar + /v1/billing/subscribe + webhook — sandbox ativo |
 | **Admin mailing page** | ✅ Filtros trial/convertido/cancelado, exportação CSV, desconto inline por tenant |
+| **UX/UI Redesign — contraste** | ✅ tm-card-warning/danger + tm-text-warning/danger em globals.css; hardcoded colors removidos de Sidebar, analisar, FluxoDocumentacao, CalculadoraIS, SimuladorReestruturacao |
+| **UX/UI Redesign — logos** | ✅ Sidebar logo h-28→h-20 sm:h-24 (mobile fix) + alt text atualizado |
+| **UX/UI Redesign — simuladores responsive** | ✅ GuiaSimulador grid-cols-1 sm:...; SimuladorReestruturacao grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 |
+| **UX/UI Redesign — landing page** | ✅ Pricing cards contraste aumentado; WhatsApp 5511999700215→5511972521970 |
+| **Disclaimer obrigatório em /analisar** | ✅ Adicionado entre saidas_stakeholders e CTADocumentar (ESP-06 §2.2 item 6) |
 | **Landing page trust signals** | ✅ "1.596 normas indexadas · 3 leis-base curadas · Auditável P1→P6" |
 | **redeploy.sh no repositório** | ✅ Script com branding Orbis.tax, versionado no git |
 | **Migrations 119–124 aplicadas em prod** | ✅ lgpd_consent, documento, marketing_consent, onboarding_varchar, session_id, desconto_percentual |
@@ -240,9 +247,9 @@ mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 | **OnboardingModal: catch block + feedback de erro** | ✅ Errors de API agora exibem mensagem ao usuário em vez de travar silenciosamente |
 | **email_service.py: enviar_email_recuperacao_senha** | ✅ Template HTML com link /redefinir-senha?token= e validade de 1 hora |
 
-- **Suite de testes backend:** 667+ passando, 5 falhas conhecidas pré-existentes (referência 2026-04-15; novos testes de simuladores adicionados)
+- **Suite de testes backend:** 721 passando, 4 falhas conhecidas pré-existentes (referência 2026-04-22; novos testes de simuladores adicionados)
 - **Novos testes de integração:** test_auth_endpoints, test_simuladores_endpoints, test_protocol_endpoints, test_analyze_endpoint, test_multi_tenant_isolation, test_observability_api_new, test_admin_monitor, test_db_integrity
-- **Última migration:** `125_reset_password_token.sql`
+- **Última migration:** `126_uuid_cases_outputs_swap.sql` (SEC-10 — aguarda janela de manutenção para aplicar em prod)
 - **Domínios registrados:** orbis.tax / tribus-ai.com.br / tribus-ia.com.br
 - **slowapi:** já está em `requirements.txt` — incluído no build Docker automaticamente
 
