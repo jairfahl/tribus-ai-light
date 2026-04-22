@@ -224,7 +224,7 @@ mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 | **UI Upgrade — /assinar dark mode fix (text-foreground / text-muted-foreground)** | ✅ |
 | **Deploy VPS Hostinger** | ✅ Produção no ar — https://orbis.tax |
 | **SEC-09 BYPASS_AUTH=False** | ✅ Confirmado: FastAPI ativo não tem BYPASS_AUTH |
-| **SEC-10 IDs sequenciais → UUID (cases/outputs)** | ⏳ Em andamento — migration 126 SWAP finalizada; type annotations int→str em carimbo.py + testes atualizados; deploy em prod requer janela de manutenção |
+| **SEC-10 IDs sequenciais → UUID (cases/outputs)** | ✅ Aplicado em prod — migrations 118 (prepare) + 126 (swap) executadas; cases.id e outputs.id são UUID; API redeployada |
 | **Fix produção — landing page raiz (route.ts + landing-page.html)** | ✅ Corrigido 2026-04-15 |
 | **Fluxo de cadastro completo** | ✅ /register → Resend email → /verify-email → /analisar |
 | **Validação senha forte** | ✅ Zod (frontend) + Pydantic @field_validator (backend): 8+ chars, maiúsc, minúsc, número, especial |
@@ -249,7 +249,7 @@ mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 
 - **Suite de testes backend:** 721 passando, 4 falhas conhecidas pré-existentes (referência 2026-04-22; novos testes de simuladores adicionados)
 - **Novos testes de integração:** test_auth_endpoints, test_simuladores_endpoints, test_protocol_endpoints, test_analyze_endpoint, test_multi_tenant_isolation, test_observability_api_new, test_admin_monitor, test_db_integrity
-- **Última migration:** `126_uuid_cases_outputs_swap.sql` (SEC-10 — aguarda janela de manutenção para aplicar em prod)
+- **Última migration:** `126_uuid_cases_outputs_swap.sql` (SEC-10 — aplicada em prod em 2026-04-22)
 - **Domínios registrados:** orbis.tax / tribus-ai.com.br / tribus-ia.com.br
 - **slowapi:** já está em `requirements.txt` — incluído no build Docker automaticamente
 
