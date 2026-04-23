@@ -486,6 +486,30 @@ O corpus desatualizado, sim.
 
 ---
 
+## 13. LIÇÕES DE ABRIL 2026 (Sprint Retenção + Páginas Legais)
+
+### [Abril 2026] — Postura senior: verificar antes de declarar entrega
+**O que aconteceu:** Sprint Retenção entregue, mas sem verificação completa end-to-end. Apenas depois de declarar pronto é que foram encontrados 5 gaps críticos: (1) apscheduler não instalado no venv, (2) import não testado, (3) colunas novas do banco não confirmadas, (4) query da inatividade com coluna inexistente, (5) lifespan não testado com startup da API.
+**Custo:** Ciclo extra de correção pós-entrega que poderia ter sido evitado.
+**Regra derivada:** Checklist de entrega obrigatório antes de declarar "pronto":
+1. Verificar que toda nova dependência está instalada no venv: `python3 -c "import <pkg>"`
+2. Testar imports dos novos módulos: `python3 -c "from src.tasks.scheduler import create_scheduler"`
+3. Confirmar colunas do banco com `\d <tabela>` no container antes de escrever queries
+4. Validar query nova no banco com dados reais antes de salvar no código
+5. Testar startup da API com o novo lifespan: `uvicorn src.api.main:app --port 9999`
+
+### [Abril 2026] — ai_interactions não tem coluna tenant_id
+**O que aconteceu:** Query em `check_inactive_tenants()` usou `WHERE ai.tenant_id = t.id`, mas a tabela `ai_interactions` só tem `user_id`. O erro só seria descoberto em produção quando o scheduler rodasse.
+**Custo:** Bug silencioso — função retornaria erro na primeira execução do job diário.
+**Regra derivada:** Antes de escrever qualquer query que acessa uma tabela pela primeira vez na sessão, rodar `\d <tabela>` no container para confirmar as colunas disponíveis. Nunca assumir que a coluna existe porque "faz sentido semântico". O join correto: `JOIN users u ON u.id = ai.user_id WHERE u.tenant_id = t.id`.
+
+### [Abril 2026] — apscheduler não vem pré-instalado — verificar venv após requirements.txt
+**O que aconteceu:** `apscheduler>=3.10.0` foi adicionado ao `requirements.txt`, mas a instalação no venv local não foi executada. Importação falharia em runtime sem mensagem clara para o usuário.
+**Custo:** Runtime error no primeiro import do scheduler.
+**Regra derivada:** Após adicionar qualquer pacote ao `requirements.txt`, instalar imediatamente: `.venv/bin/python3 -m pip install -r requirements.txt`. Evitar usar `.venv/bin/pip` diretamente — pode apontar para o interpretador errado se o venv foi criado de outro projeto. Usar sempre `.venv/bin/python3 -m pip install`.
+
+---
+
 ## ATUALIZAÇÃO DESTE ARQUIVO
 
 Atualizar sempre que:

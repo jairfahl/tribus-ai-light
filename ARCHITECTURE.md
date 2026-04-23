@@ -1,5 +1,5 @@
 # Orbis.tax — Architecture Reference
-**Versão:** 2.7
+**Versão:** 2.8
 **Atualizado em:** Abril 2026
 **Mantido por:** PO (Jair)
 
@@ -50,7 +50,11 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   │   ├── simuladores/      ← Simuladores de carga tributária (URL: /simuladores)
 │   │   │   ├── documentos/       ← Histórico de outputs + modal de detalhes (URL: /documentos)
 │   │   │   ├── base-conhecimento/ ← Upload normas + Monitor de Fontes (URL: /base-conhecimento)
-│   │   │   └── assinar/          ← Plano Starter R$297/2 meses → R$497/mês — Asaas PIX/Cartão (URL: /assinar)
+│   │   │   ├── assinar/          ← Plano Starter R$297/2 meses → R$497/mês — Asaas PIX/Cartão (URL: /assinar)
+│   │   │   └── conta/page.tsx    ← Minha Conta: dados, status assinatura, CancelModal exit survey (URL: /conta)
+│   │   ├── politica-privacidade/page.tsx ← Política de Privacidade LGPD — pública estática (URL: /politica-privacidade)
+│   │   ├── termos-de-uso/page.tsx        ← Termos de Uso — pública estática (URL: /termos-de-uso)
+│   │   ├── sla/page.tsx                  ← SLA — uptime/suporte/severidade/compensações — pública estática (URL: /sla)
 │   │   └── admin/
 │   │       ├── page.tsx          ← Painel admin redirect (ADMIN only) (URL: /admin)
 │   │       ├── usuarios/page.tsx  ← Gestão de usuários ADMIN
@@ -97,6 +101,9 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   └── vigencia_checker.py
 │   ├── billing/
 │   │   ├── access.py, mau_tracker.py
+│   ├── tasks/
+│   │   ├── __init__.py
+│   │   └── scheduler.py          ← APScheduler jobs diários: check_trial_expiring (09h UTC) + check_inactive_tenants (09h30 UTC)
 │   ├── integrity/
 │   │   └── lockfile_manager.py
 │   ├── email_service.py          ← Envio de e-mails via Resend API (verificação de conta + recuperação de senha)
@@ -111,7 +118,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   └── db/
 │       └── pool.py               ← ThreadedConnectionPool — get_conn/put_conn (USAR SEMPRE)
 ├── migrations/
-│   └── NNN_descricao.sql         ← Numeração sequencial obrigatória (última: 126_uuid_cases_outputs_swap.sql)
+│   └── NNN_descricao.sql         ← Numeração sequencial obrigatória (última: 127_churn_email_tracking.sql)
 └── tests/
     ├── unit/                     ← test_[modulo].py + conftest.py (autouse mocks)
     │   └── test_iterative_quality_loop.py ← 17 testes do Loop Depth Quality Gate (sem LLM)
@@ -179,7 +186,12 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | `frontend/store/auth.ts` | Estado global de auth (user, token) com persistência localStorage | Zero chamadas diretas à API |
 | `src/api/main.py` | 40+ endpoints REST, validação, serialização, rate limiting (slowapi) | Zero lógica de domínio — delega ao engine |
 | `src/api/auth_api.py` | Dependency `verificar_token_api` — valida `X-Api-Key` em todos os endpoints protegidos | Zero lógica tributária |
-| `src/email_service.py` | Envio de e-mail de verificação + recuperação de senha via Resend; templates HTML com links tokenizados | Zero lógica de negócio |
+| `src/email_service.py` | Envio de e-mail transacional via Resend: verificação, recuperação de senha, trial D-3/D-1, falha de pagamento, inatividade 14 dias | Zero lógica de negócio |
+| `src/tasks/scheduler.py` | APScheduler jobs diários de retenção: check_trial_expiring (D-3/D-1), check_inactive_tenants (14 dias sem análise) | Zero lógica tributária |
+| `frontend/app/(app)/conta/page.tsx` | Minha Conta: exibe dados, status assinatura, CancelModal com exit survey → POST /v1/billing/cancel | Zero lógica de cobrança |
+| `frontend/app/politica-privacidade/` | Política de Privacidade LGPD — página pública estática sem auth | Zero lógica de aplicação |
+| `frontend/app/termos-de-uso/` | Termos de Uso — página pública estática sem auth | Zero lógica de aplicação |
+| `frontend/app/sla/` | SLA — uptime, suporte, severidade, compensações — página pública estática sem auth | Zero lógica de aplicação |
 | `src/cognitive/engine.py` | Orquestração do pipeline cognitivo completo | Zero renderização UI |
 | `src/rag/retriever.py` | Retrieval HNSW, adaptive tool chain, PTF | Zero lógica de negócio tributária |
 | `auth.py` | JWT, bcrypt, autenticação, busca de usuário | Zero renderização UI |
@@ -246,7 +258,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 ### Banco de Dados
 - **Toda nova feature que toca o banco começa por migration SQL versionada.**
   - Formato: `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)
-  - Migration mais recente: `126_uuid_cases_outputs_swap.sql` → próxima será `127_...`
+  - Migration mais recente: `127_churn_email_tracking.sql` → próxima será `128_...`
 - **Nunca alterar schema sem migration.** ALTER TABLE direto no banco sem arquivo = proibido.
 - **Antes de migration com FK, verificar se tabela-pai existe** com `\d <tabela>` no container.
 
@@ -269,7 +281,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 
 ### Gate de Qualidade
 - **RDMs da Onda 1.5 estão implementados** (HyDE, Multi-Query, Step-Back, Context Budget, Lockfile). Não reimplementar.
-- **667+ testes devem passar** após qualquer modificação.
+- **737+ testes devem passar** após qualquer modificação.
   - Comando: `.venv/bin/python -m pytest tests/unit/ tests/integration/ -v --tb=short`
   - Zero novas regressões toleradas — qualquer falha nova deve ser corrigida antes de entregar
 
@@ -369,6 +381,12 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | HyDE prompt densificado (H2) | ✅ Implementado Abril 2026 | Terminologia IBS/CBS/IS/fato gerador/SPED obrigatória; estrutura artigo→regra→vigência→fato gerador |
 | Asaas webhook GET handler | ✅ Implementado Abril 2026 | GET /v1/webhooks/asaas retorna {"status":"ok"} para validação de URL no painel Asaas |
 | Pricing promocional Starter | ✅ Implementado Abril 2026 | R$297 por 2 meses → R$497/mês; discount.type=FIXED + duracaoMeses=2 via Asaas API |
+| Sprint Retenção — APScheduler | ✅ Implementado Abril 2026 | BackgroundScheduler via asynccontextmanager lifespan em main.py; 2 jobs diários UTC |
+| Sprint Retenção — self-serve cancel | ✅ Implementado Abril 2026 | POST /v1/billing/cancel + CancelModal exit survey 4 opções — Asaas 404 = sucesso silencioso |
+| Sprint Retenção — email falha pagamento | ✅ Implementado Abril 2026 | Webhook asaas past_due → _notificar_falha_pagamento → enviar_email_falha_pagamento |
+| Páginas legais públicas | ✅ Implementado Abril 2026 | /politica-privacidade, /termos-de-uso, /sla fora dos grupos (app)/(auth) — sem AuthGuard |
+| Landing page tagline refinada | ✅ Implementado Abril 2026 | "Feito para quem decide, não para quem experimenta" — menos agressiva, mesmo posicionamento |
+| ai_interactions não tem tenant_id | ✅ Confirmado Abril 2026 | Tabela tem user_id; joins por tenant devem passar por users: JOIN users u ON u.id = ai.user_id WHERE u.tenant_id = t.id |
 
 ---
 

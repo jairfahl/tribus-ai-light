@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   CheckCircle,
+  UserCircle,
 } from "lucide-react";
 import { useAuthStore } from "@/store/auth";
 import { cn } from "@/lib/utils";
@@ -174,6 +175,16 @@ export function Sidebar() {
               Admin
             </Link>
           )}
+          <Link
+            href="/conta"
+            className="text-xs flex items-center gap-1 transition-colors duration-150"
+            style={{ color: "rgba(255,255,255,.55)" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,.90)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.color = "rgba(255,255,255,.55)")}
+          >
+            <UserCircle size={11} />
+            Conta
+          </Link>
           <button
             onClick={logout}
             className="text-xs flex items-center gap-1 ml-auto cursor-pointer transition-colors duration-150 hover:text-red-400"

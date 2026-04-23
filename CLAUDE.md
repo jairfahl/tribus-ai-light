@@ -1,5 +1,5 @@
 # Orbis.tax — Instruções para Claude Code
-**Versão:** 2.8 | **Atualizado em:** Abril 2026
+**Versão:** 2.9 | **Atualizado em:** Abril 2026
 
 > Este arquivo é lido automaticamente pelo Claude Code a cada sessão.
 > Não remover. Atualizar sempre que houver decisões arquiteturais novas.
@@ -68,6 +68,7 @@ Só prosseguir após concluir os 3 passos acima.
 | O que usar | O que NUNCA usar |
 |---|---|
 | Python 3.12, FastAPI | LangChain / LlamaIndex |
+| APScheduler>=3.10.0 (jobs diários de retenção) | LangGraph |
 | Next.js 16 App Router, React, Tailwind v4, shadcn/ui v2 | LangGraph |
 | PostgreSQL 16 + pgvector (HNSW, dim 1024) | Supabase |
 | Voyage-3 (embeddings) | ChromaDB / FAISS / Pinecone |
@@ -173,6 +174,7 @@ sugestoes_silenciadas -- silenciamentos de sugestões proativas
 
 -- Auth e billing
 tenants               -- tenants com plano, trial, status de pagamento + desconto_percentual (migration 124)
+                      -- + trial_d3_email_sent_at, trial_d1_email_sent_at, inactivity_email_sent_at, cancel_reason (migration 127)
 users                 -- usuários + perfil onboarding + lgpd_consent + email_verificado + email_token
                       -- + reset_token + reset_token_expires_at (migration 125)
                       -- + tipo_atuacao VARCHAR(100) + cargo_responsavel VARCHAR(30) (migrations 117/122)
@@ -250,13 +252,27 @@ mau_records           -- Monthly Active Users por tenant/mês (DEC-08)
 | **Register: asteriscos + SenhaRequisitos** | ✅ Asteriscos em todos os campos obrigatórios; checklist de senha sempre visível |
 | **OnboardingModal: catch block + feedback de erro** | ✅ Errors de API agora exibem mensagem ao usuário em vez de travar silenciosamente |
 | **email_service.py: enviar_email_recuperacao_senha** | ✅ Template HTML com link /redefinir-senha?token= e validade de 1 hora |
+| **Sprint Retenção — Migration 127 (churn tracking)** | ✅ trial_d3/d1_email_sent_at, inactivity_email_sent_at, cancel_reason adicionados a tenants |
+| **Sprint Retenção — APScheduler jobs diários** | ✅ src/tasks/scheduler.py: check_trial_expiring (09h UTC) + check_inactive_tenants (09h30 UTC) |
+| **Sprint Retenção — 3 novas funções email_service.py** | ✅ enviar_email_trial_expirando (D-3/D-1), enviar_email_falha_pagamento, enviar_email_inatividade |
+| **Sprint Retenção — POST /v1/billing/cancel** | ✅ Endpoint self-serve + helper _notificar_falha_pagamento no webhook asaas (past_due) |
+| **Sprint Retenção — lifespan APScheduler em main.py** | ✅ asynccontextmanager lifespan substituiu on_event; scheduler start/shutdown gerenciado |
+| **Sprint Retenção — /conta (Minha Conta)** | ✅ frontend/app/(app)/conta/page.tsx: dados, status assinatura, CancelModal com exit survey |
+| **Sprint Retenção — link Minha Conta na Sidebar** | ✅ UserCircle icon + Link /conta no rodapé da Sidebar entre Admin e Sair |
+| **Páginas legais — /politica-privacidade** | ✅ 12 seções LGPD, DPO Jair Fahl, Foro Indaiatuba/SP — página pública estática |
+| **Páginas legais — /termos-de-uso** | ✅ 10 seções + disclaimer de IA obrigatório — página pública estática |
+| **Páginas legais — /sla** | ✅ 8 seções + 4 tabelas (uptime, suporte, severidade, compensações) — página pública estática |
+| **Landing page — links legais habilitados** | ✅ /politica-privacidade, /termos-de-uso, /sla linkados no rodapé (landing + landing-page.html) |
+| **Landing page — limpeza de rodapé** | ✅ Removidos: Contato (mailto), Entrar na plataforma →, WhatsApp; e-mails → admin@orbis.tax |
+| **Landing page — nova tagline** | ✅ "Feito para quem decide, não para quem experimenta" (era "…não para o curioso") |
 
 - **Suite de testes backend:** 737 passando, 5 falhas conhecidas pré-existentes (referência 2026-04-23; +17 testes Loop Depth Quality Gate adicionados)
 - **Novos testes unitários:** test_iterative_quality_loop.py (17 testes — FACTUAL, INTERPRETATIVA, COMPARATIVA, halting, escala top_k)
 - **Novos testes de integração:** test_auth_endpoints, test_simuladores_endpoints, test_protocol_endpoints, test_analyze_endpoint, test_multi_tenant_isolation, test_observability_api_new, test_admin_monitor, test_db_integrity
-- **Última migration:** `126_uuid_cases_outputs_swap.sql` (SEC-10 — aplicada em prod em 2026-04-22)
+- **Última migration:** `127_churn_email_tracking.sql` (Sprint Retenção — aplicada localmente em 2026-04-23)
 - **Domínios registrados:** orbis.tax / tribus-ai.com.br / tribus-ia.com.br
 - **slowapi:** já está em `requirements.txt` — incluído no build Docker automaticamente
+- **apscheduler:** `apscheduler>=3.10.0` em `requirements.txt` — instalado no venv local
 
 ---
 
@@ -307,7 +323,7 @@ LOCKFILE_MODE válido, e ausência de secrets hardcoded em src/.
 ```bash
 # Verificar última migration
 ls /Users/jairfahl/Downloads/tribus-ai-light/migrations/ | sort | tail -5
-# Última: 125_reset_password_token.sql → próxima: 126_descricao.sql
+# Última: 127_churn_email_tracking.sql → próxima: 128_descricao.sql
 
 # Executar migration
 docker exec -i tribus-ai-db \

@@ -40,6 +40,7 @@ import os
 import re
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
@@ -57,7 +58,10 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from src.api.auth_api import verificar_token_api, verificar_sessao
 from auth import autenticar, buscar_usuario_por_email, gerar_hash_senha, gerar_token
-from src.email_service import enviar_email_confirmacao
+from src.email_service import (
+    enviar_email_confirmacao,
+    enviar_email_falha_pagamento,
+)
 
 from src.cognitive.engine import MODEL_DEV, AnaliseResult, analisar
 from src.cognitive.detector_carimbo import detectar_carimbo as _detectar_carimbo_lexico
@@ -106,10 +110,20 @@ def _validar_mime_bytes(header: bytes, ext: str) -> bool:
         return True   # formatos texto (txt, md, csv) não têm magic bytes
     return any(header.startswith(magic) for magic in permitidos)
 
+@asynccontextmanager
+async def lifespan(app):
+    from src.tasks.scheduler import create_scheduler
+    scheduler = create_scheduler()
+    scheduler.start()
+    yield
+    scheduler.shutdown()
+
+
 app = FastAPI(
     title="Tribus-AI API",
     description="Motor cognitivo para análise da Reforma Tributária brasileira",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -1700,6 +1714,21 @@ _ASAAS_STATUS_MAP = {
 }
 
 
+def _notificar_falha_pagamento(tenant_id: str, conn) -> None:
+    """Busca o e-mail do admin do tenant e envia notificação de falha de pagamento."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT u.email, u.nome FROM users u WHERE u.tenant_id = %s AND u.perfil = 'ADMIN' LIMIT 1",
+                (tenant_id,),
+            )
+            row = cur.fetchone()
+        if row:
+            enviar_email_falha_pagamento(row[0], row[1])
+    except Exception as exc:
+        logger.error("Erro ao notificar falha de pagamento para tenant %s: %s", tenant_id, exc)
+
+
 @app.get("/v1/webhooks/asaas")
 async def asaas_webhook_ping():
     """Validação de conectividade do Asaas (GET health check)."""
@@ -1742,6 +1771,8 @@ async def asaas_webhook(request: Request):
             cur.execute(sql, (novo_status, external_ref))
         conn.commit()
         logger.info("Tenant %s → subscription_status='%s' via webhook Asaas.", external_ref, novo_status)
+        if novo_status == "past_due":
+            _notificar_falha_pagamento(external_ref, conn)
     except Exception as e:
         logger.error("Erro ao atualizar tenant via webhook: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno.")
@@ -2540,6 +2571,71 @@ def billing_subscribe(req: SubscribeRequest):
             conn.rollback()
         logger.error("Erro em /v1/billing/subscribe: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro ao processar assinatura. Tente novamente.")
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+class CancelRequest(BaseModel):
+    tenant_id: str
+    motivo: Optional[str] = None
+
+
+@app.post("/v1/billing/cancel", dependencies=[Depends(verificar_token_api)])
+def billing_cancel(req: CancelRequest):
+    """
+    Cancela a assinatura do tenant no Asaas e atualiza o status interno.
+    Salva o motivo de cancelamento coletado no exit survey.
+    404 do Asaas (sub já cancelada) é tratado como sucesso silencioso.
+    """
+    from src.billing.asaas import cancelar_assinatura as _asaas_cancelar
+    import httpx
+
+    logger.info("POST /v1/billing/cancel tenant_id=%s", req.tenant_id)
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT asaas_subscription_id FROM tenants WHERE id = %s LIMIT 1",
+                (req.tenant_id,),
+            )
+            row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Tenant não encontrado.")
+
+        asaas_sub_id = row[0]
+
+        if asaas_sub_id:
+            try:
+                _asaas_cancelar(asaas_sub_id)
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code == 404:
+                    logger.warning("Assinatura %s não encontrada no Asaas — prosseguindo com cancelamento local.", asaas_sub_id)
+                else:
+                    raise
+
+        with conn.cursor() as cur:
+            cur.execute(
+                """UPDATE tenants
+                   SET subscription_status = 'canceled',
+                       cancel_reason = %s,
+                       updated_at = NOW()
+                   WHERE id = %s""",
+                (req.motivo, req.tenant_id),
+            )
+        conn.commit()
+        logger.info("Tenant %s cancelado. Motivo: %s", req.tenant_id, req.motivo)
+        return {"ok": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logger.error("Erro em /v1/billing/cancel: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao cancelar assinatura. Tente novamente.")
     finally:
         if conn:
             put_conn(conn)
