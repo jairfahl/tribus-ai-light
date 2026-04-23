@@ -5,6 +5,7 @@ import { Menu } from "lucide-react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AuthGuard } from "@/components/layout/AuthGuard";
 import { OnboardingModal } from "@/components/layout/OnboardingModal";
+import { SubscriptionBlocker } from "@/components/layout/SubscriptionBlocker";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -53,7 +54,9 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="px-4 md:px-6 py-6 max-w-5xl mx-auto">
-            {children}
+            <SubscriptionBlocker>
+              {children}
+            </SubscriptionBlocker>
           </div>
         </main>
       </div>

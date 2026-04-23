@@ -1692,9 +1692,11 @@ ASAAS_WEBHOOK_TOKEN = os.getenv("ASAAS_WEBHOOK_TOKEN", "")
 _ASAAS_STATUS_MAP = {
     "PAYMENT_RECEIVED":         "active",
     "PAYMENT_CONFIRMED":        "active",
+    "SUBSCRIPTION_RENEWED":     "active",
     "PAYMENT_OVERDUE":          "past_due",
     "PAYMENT_DELETED":          "past_due",
     "SUBSCRIPTION_INACTIVATED": "canceled",
+    "SUBSCRIPTION_DELETED":     "canceled",
 }
 
 
