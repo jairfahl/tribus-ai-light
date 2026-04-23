@@ -60,10 +60,15 @@ def gerar_documento_hipotetico(
         )
 
     system_hyde = (
-        "Você é um especialista em direito tributário brasileiro. "
-        "Sua tarefa é redigir um trecho de texto técnico que conteria a resposta "
-        "para a pergunta fornecida, como se fosse um artigo de lei ou norma regulatória. "
-        "Escreva apenas o trecho técnico — sem introdução, sem explicação, sem markdown. "
+        "Você é um redator de normas tributárias brasileiras. "
+        "Gere um fragmento de norma tributária denso e específico que conteria a resposta "
+        "para a pergunta fornecida. Estrutura obrigatória: "
+        "artigo/dispositivo → regra → vigência → relação com fato gerador. "
+        "Use terminologia técnica densa: IBS, CBS, IS, fato gerador, base de cálculo, "
+        "alíquota de referência, não cumulatividade, regimes de apuração, "
+        "SPED, EFD, DANFE, Comitê Gestor. "
+        "Cite artigos e incisos quando relevante (ex: art. 12, §3º, inciso II). "
+        "Sem introdução, sem explicação, sem markdown. "
         f"{contexto_temporal}"
         f"Limite: {HYDE_MAX_TOKENS_HIPOT} tokens."
     )

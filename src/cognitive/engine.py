@@ -9,7 +9,7 @@ import logging
 import os
 import re as _re_mod
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Literal, Optional
 
 import anthropic
@@ -256,6 +256,19 @@ class AnaliseResult:
     criticidade: str = "informativo"
     criticidade_justificativa: str = ""
     criticidade_impacto: str = ""
+    quality_iterations: int = 1  # nº iterações do quality gate loop (observability)
+
+
+# ---------------------------------------------------------------------------
+# Loop Depth Quality Gate — ACT-inspired (OpenMythos concept)
+# Queries FACTUAL não iteram (velocidade). INTERPRETATIVA: até 2. COMPARATIVA: até 3.
+# ---------------------------------------------------------------------------
+_QUALITY_MAX_ITER: dict[str, int] = {
+    "factual": 1,
+    "interpretativa": 2,
+    "comparativa": 3,
+}
+_QUALITY_TOPK_SCALE: dict[int, float] = {1: 1.0, 2: 1.7, 3: 2.5}
 
 
 _anthropic_client: Optional[anthropic.Anthropic] = None
@@ -929,10 +942,11 @@ def _analisar_inner(
     )
     logger.info("SPD routing: strategy=%s reason=%s", decisao.strategy.value, decisao.reason)
 
-    def _do_retrieve(q: str) -> list[ChunkResultado]:
-        return retrieve(q, top_k=params.top_k, rerank_top_n=params.rerank_top_n,
+    def _do_retrieve(q: str, _p=None) -> list[ChunkResultado]:
+        p = _p if _p is not None else params
+        return retrieve(q, top_k=p.top_k, rerank_top_n=p.rerank_top_n,
                         norma_filter=norma_filter, excluir_tipos=_excluir,
-                        cosine_weight=params.cosine_weight, bm25_weight=params.bm25_weight,
+                        cosine_weight=p.cosine_weight, bm25_weight=p.bm25_weight,
                         data_referencia=data_ref)
 
     if decisao.strategy == SPDStrategy.SPD:
@@ -960,18 +974,13 @@ def _analisar_inner(
     else:
         chunks = _do_retrieve(query)
 
-    # P1.5 — Corrective RAG: filtrar chunks irrelevantes antes do quality gate
-    _alertas_vigencia_crag: list[AlertaVigencia] = []
-    try:
-        corrector = CorrectorRAG(model=model)
-        crag_result = corrector.corrigir(query, chunks, retrieve_fn=_do_retrieve)
-        chunks = crag_result.chunks_filtrados
-        _alertas_vigencia_crag = crag_result.alertas_vigencia
-    except Exception as e:
-        logger.warning("CRAG ignorado: %s", e)
+    # P1.5-P2 — CRAG + Adaptive Tools + Quality Gate
+    # Loop Depth (ACT-inspired): queries complexas recebem até N iterações de retrieval.
+    # FACTUAL: 1 iteração (sem loop). INTERPRETATIVA: até 2. COMPARATIVA: até 3.
+    _quality_max_iter = _QUALITY_MAX_ITER.get(query_tipo.value, 1)
+    _quality_iterations = 1
 
-    # P1.6–P1.8 — Adaptive Retrieval Tools (mutuamente exclusivos)
-    # Prioridade: Multi-Query > Step-Back > HyDE > Standard
+    # Inicializar flags de ferramentas antes do loop
     _hyde_activated = False
     _multi_query_activated = False
     _query_variations_count = 0
@@ -980,128 +989,180 @@ def _analisar_inner(
     _regime = resolver_regime(data_ref) if data_ref else None
     _qt_upper = query_tipo.value.upper()
     _tool_activated = False
+    _alertas_vigencia_crag: list[AlertaVigencia] = []
 
-    # Tool 1: Multi-Query (vocabulário coloquial)
-    if not _tool_activated:
-        try:
-            chunks, _multi_query_activated, _query_variations_count = executar_multi_query_fallback(
-                query=query,
-                chunks_iniciais=chunks,
-                model=model,
-                top_k=params.top_k,
-                rerank_top_n=params.rerank_top_n,
-                norma_filter=norma_filter,
-                excluir_tipos=_excluir,
-                cosine_weight=params.cosine_weight,
-                bm25_weight=params.bm25_weight,
-                data_referencia=data_ref,
-                regime=_regime,
+    for _iter_n in range(1, _quality_max_iter + 1):
+        _quality_iterations = _iter_n
+
+        # Nas iterações seguintes: escalar params e re-fazer retrieve
+        if _iter_n > 1:
+            _iter_params = replace(
+                params,
+                top_k=round(params.top_k * _QUALITY_TOPK_SCALE[_iter_n]),
+                rerank_top_n=round(params.rerank_top_n * _QUALITY_TOPK_SCALE[_iter_n]),
             )
-            _tool_activated = _multi_query_activated
-        except Exception as e:
-            logger.warning("Multi-Query ignorado: %s", e)
-
-    # Tool 2: Step-Back (alta especificidade)
-    if not _tool_activated:
-        try:
-            chunks, _step_back_activated, _step_back_query_text = executar_step_back_fallback(
-                query=query,
-                chunks_iniciais=chunks,
-                tipo_query=_qt_upper,
-                model=model,
-                top_k=params.top_k,
-                rerank_top_n=params.rerank_top_n,
-                norma_filter=norma_filter,
-                excluir_tipos=_excluir,
-                cosine_weight=params.cosine_weight,
-                bm25_weight=params.bm25_weight,
-                data_referencia=data_ref,
-                regime=_regime,
+            logger.info(
+                "Quality loop iter %d/%d: escalando top_k=%d rerank=%d",
+                _iter_n, _quality_max_iter, _iter_params.top_k, _iter_params.rerank_top_n,
             )
-            _tool_activated = _step_back_activated
-        except Exception as e:
-            logger.warning("Step-Back ignorado: %s", e)
+            chunks = _do_retrieve(query, _iter_params)
+            _tool_activated = False
+            _hyde_activated = False
+            _multi_query_activated = False
+            _step_back_activated = False
+        else:
+            _iter_params = params
 
-    # Tool 3: HyDE (score baixo em queries interpretativas)
-    if not _tool_activated:
+        # P1.5 — Corrective RAG
+        _alertas_vigencia_crag = []
         try:
-            chunks, _hyde_activated = executar_hyde_fallback(
-                query=query,
-                chunks_iniciais=chunks,
-                tipo_query=_qt_upper,
-                model=model,
-                top_k=params.top_k,
-                rerank_top_n=params.rerank_top_n,
-                norma_filter=norma_filter,
-                excluir_tipos=_excluir,
-                cosine_weight=params.cosine_weight,
-                bm25_weight=params.bm25_weight,
-                data_referencia=data_ref,
-                regime=_regime,
+            corrector = CorrectorRAG(model=model)
+            crag_result = corrector.corrigir(
+                query, chunks, retrieve_fn=lambda q: _do_retrieve(q, _iter_params)
             )
+            chunks = crag_result.chunks_filtrados
+            _alertas_vigencia_crag = crag_result.alertas_vigencia
         except Exception as e:
-            logger.warning("HyDE ignorado: %s", e)
+            logger.warning("CRAG ignorado: %s", e)
 
-    # P2 — Quality Gate
-    qualidade = avaliar_qualidade(query, chunks)
+        # P1.6–P1.8 — Adaptive Retrieval Tools (mutuamente exclusivos)
+        # Tool 1: Multi-Query (vocabulário coloquial)
+        if not _tool_activated:
+            try:
+                chunks, _multi_query_activated, _query_variations_count = executar_multi_query_fallback(
+                    query=query,
+                    chunks_iniciais=chunks,
+                    model=model,
+                    top_k=_iter_params.top_k,
+                    rerank_top_n=_iter_params.rerank_top_n,
+                    norma_filter=norma_filter,
+                    excluir_tipos=_excluir,
+                    cosine_weight=_iter_params.cosine_weight,
+                    bm25_weight=_iter_params.bm25_weight,
+                    data_referencia=data_ref,
+                    regime=_regime,
+                )
+                _tool_activated = _multi_query_activated
+            except Exception as e:
+                logger.warning("Multi-Query ignorado: %s", e)
 
-    # RS-02 reactive fallback: se fonte unica detectada, retry com SPD
-    if (decisao.strategy == SPDStrategy.STANDARD
-            and "RS-02" in qualidade.ressalvas
-            and len(normas_ativas) >= 2):
-        logger.info("RS-02 detectado — retry com SPD-RAG")
-        try:
-            spd_result = spd_retrieve(
+        # Tool 2: Step-Back (alta especificidade)
+        if not _tool_activated:
+            try:
+                chunks, _step_back_activated, _step_back_query_text = executar_step_back_fallback(
+                    query=query,
+                    chunks_iniciais=chunks,
+                    tipo_query=_qt_upper,
+                    model=model,
+                    top_k=_iter_params.top_k,
+                    rerank_top_n=_iter_params.rerank_top_n,
+                    norma_filter=norma_filter,
+                    excluir_tipos=_excluir,
+                    cosine_weight=_iter_params.cosine_weight,
+                    bm25_weight=_iter_params.bm25_weight,
+                    data_referencia=data_ref,
+                    regime=_regime,
+                )
+                _tool_activated = _step_back_activated
+            except Exception as e:
+                logger.warning("Step-Back ignorado: %s", e)
+
+        # Tool 3: HyDE (score baixo em queries interpretativas)
+        if not _tool_activated:
+            try:
+                chunks, _hyde_activated = executar_hyde_fallback(
+                    query=query,
+                    chunks_iniciais=chunks,
+                    tipo_query=_qt_upper,
+                    model=model,
+                    top_k=_iter_params.top_k,
+                    rerank_top_n=_iter_params.rerank_top_n,
+                    norma_filter=norma_filter,
+                    excluir_tipos=_excluir,
+                    cosine_weight=_iter_params.cosine_weight,
+                    bm25_weight=_iter_params.bm25_weight,
+                    data_referencia=data_ref,
+                    regime=_regime,
+                )
+            except Exception as e:
+                logger.warning("HyDE ignorado: %s", e)
+
+        # P2 — Quality Gate
+        qualidade = avaliar_qualidade(query, chunks)
+
+        # RS-02 reactive (apenas na iter 1 — evitar SPD duplo)
+        if (_iter_n == 1
+                and decisao.strategy == SPDStrategy.STANDARD
+                and "RS-02" in qualidade.ressalvas
+                and len(normas_ativas) >= 2):
+            logger.info("RS-02 detectado — retry com SPD-RAG")
+            try:
+                spd_result = spd_retrieve(
+                    query=query,
+                    normas=normas_ativas,
+                    top_k_por_norma=3,
+                    rerank_top_n=_iter_params.rerank_top_n,
+                    excluir_tipos=_excluir,
+                    cosine_weight=_iter_params.cosine_weight,
+                    bm25_weight=_iter_params.bm25_weight,
+                    data_referencia=data_ref,
+                )
+                if len({c.norma_codigo for c in spd_result.chunks_merged}) > 1:
+                    chunks = spd_result.chunks_merged[:_iter_params.top_k]
+                    qualidade = avaliar_qualidade(query, chunks)
+                    decisao = SPDRoutingDecision(SPDStrategy.SPD_REACTIVE, "RS-02 fallback")
+                    logger.info("SPD reactive: cobertura multi-norma restaurada")
+            except Exception as e:
+                logger.warning("SPD reactive fallback falhou: %s", e)
+
+        # VERMELHO: bloquear imediatamente (mesmo comportamento original)
+        if qualidade.status == QualidadeStatus.VERMELHO:
+            latencia_ms = int((time.time() - t0) * 1000)
+            anti = AntiAlucinacaoResult(bloqueado=True, flags=["BLOQUEADO_POR_QUALIDADE"] + qualidade.bloqueios)
+            resultado = AnaliseResult(
                 query=query,
-                normas=normas_ativas,
-                top_k_por_norma=3,
-                rerank_top_n=params.rerank_top_n,
-                excluir_tipos=_excluir,
-                cosine_weight=params.cosine_weight,
-                bm25_weight=params.bm25_weight,
-                data_referencia=data_ref,
+                chunks=chunks,
+                qualidade=qualidade,
+                fundamento_legal=[],
+                grau_consolidacao="indefinido",
+                contra_tese=None,
+                scoring_confianca="baixo",
+                resposta=f"Consulta bloqueada: {'; '.join(qualidade.bloqueios)}",
+                disclaimer=None,
+                anti_alucinacao=anti,
+                prompt_version=PROMPT_VERSION,
+                model_id=model,
+                latencia_ms=latencia_ms,
+                retrieval_strategy=decisao.strategy.value,
+                quality_iterations=_quality_iterations,
             )
-            if len({c.norma_codigo for c in spd_result.chunks_merged}) > 1:
-                chunks = spd_result.chunks_merged[:params.top_k]
-                qualidade = avaliar_qualidade(query, chunks)
-                decisao = SPDRoutingDecision(SPDStrategy.SPD_REACTIVE, "RS-02 fallback")
-                logger.info("SPD reactive: cobertura multi-norma restaurada")
-        except Exception as e:
-            logger.warning("SPD reactive fallback falhou: %s", e)
+            _registrar_interacao(conn, query, chunks, qualidade, anti, {}, model, latencia_ms,
+                                retrieval_strategy=decisao.strategy.value,
+                                data_referencia_utilizado=data_ref,
+                                is_future_scenario_flag=_is_future,
+                                lockfile_id=_lockfile_id_ativo,
+                                hyde_activated=_hyde_activated,
+                                multi_query_activated=_multi_query_activated,
+                                query_variations_count=_query_variations_count,
+                                step_back_activated=_step_back_activated,
+                                step_back_query=_step_back_query_text,
+                                user_id=user_id,
+                                premissas=premissas,
+                                riscos_fiscais=riscos_fiscais)
+            return resultado
 
-    if qualidade.status == QualidadeStatus.VERMELHO:
-        latencia_ms = int((time.time() - t0) * 1000)
-        anti = AntiAlucinacaoResult(bloqueado=True, flags=["BLOQUEADO_POR_QUALIDADE"] + qualidade.bloqueios)
-        resultado = AnaliseResult(
-            query=query,
-            chunks=chunks,
-            qualidade=qualidade,
-            fundamento_legal=[],
-            grau_consolidacao="indefinido",
-            contra_tese=None,
-            scoring_confianca="baixo",
-            resposta=f"Consulta bloqueada: {'; '.join(qualidade.bloqueios)}",
-            disclaimer=None,
-            anti_alucinacao=anti,
-            prompt_version=PROMPT_VERSION,
-            model_id=model,
-            latencia_ms=latencia_ms,
-            retrieval_strategy=decisao.strategy.value,
+        # Halting: VERDE ou última iteração → prosseguir para P3
+        if qualidade.status == QualidadeStatus.VERDE or _iter_n == _quality_max_iter:
+            if _iter_n > 1:
+                logger.info(
+                    "Quality loop: status=%s após %d iterações",
+                    qualidade.status.value, _iter_n,
+                )
+            break
+        logger.info(
+            "Quality Gate %s na iter %d/%d — escalando retrieval para iter %d",
+            qualidade.status.value, _iter_n, _quality_max_iter, _iter_n + 1,
         )
-        _registrar_interacao(conn, query, chunks, qualidade, anti, {}, model, latencia_ms,
-                            retrieval_strategy=decisao.strategy.value,
-                            data_referencia_utilizado=data_ref,
-                            is_future_scenario_flag=_is_future,
-                            lockfile_id=_lockfile_id_ativo,
-                            hyde_activated=_hyde_activated,
-                            multi_query_activated=_multi_query_activated,
-                            query_variations_count=_query_variations_count,
-                            step_back_activated=_step_back_activated,
-                            step_back_query=_step_back_query_text,
-                            user_id=user_id,
-                            premissas=premissas,
-                            riscos_fiscais=riscos_fiscais)
-        return resultado
 
     # P3 — LLM + Progressive Loading + Context Budget Manager (RDM-028)
     qt_str = query_tipo.value.upper()
@@ -1239,6 +1300,7 @@ def _analisar_inner(
         model_id=model,
         latencia_ms=latencia_ms,
         retrieval_strategy=decisao.strategy.value,
+        quality_iterations=_quality_iterations,
     )
 
     # Gerar context_budget_log estruturado (inclui chunk budget RDM-028)
