@@ -2,6 +2,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { FolderOpen, Lock, X, ChevronRight, Search } from "lucide-react";
 import { Card } from "@/components/shared/Card";
+import { useAuthStore } from "@/store/auth";
 import api from "@/lib/api";
 
 const CLASSES: Record<string, { emoji: string; label: string }> = {
@@ -163,11 +164,13 @@ export default function DocumentosPage() {
   const [erro, setErro] = useState("");
   const [selecionado, setSelecionado] = useState<DocumentoView | null>(null);
   const [busca, setBusca] = useState("");
+  const { user } = useAuthStore();
 
   useEffect(() => {
     async function carregar() {
       try {
-        const casesRes = await api.get<CaseRow[]>("/v1/cases");
+        const params = user?.id ? `?user_id=${user.id}` : "";
+        const casesRes = await api.get<CaseRow[]>(`/v1/cases${params}`);
         const cases = casesRes.data;
 
         if (cases.length === 0) { setDocumentos([]); return; }
@@ -193,7 +196,7 @@ export default function DocumentosPage() {
       }
     }
     carregar();
-  }, []);
+  }, [user?.id]);
 
   const documentosFiltrados = useMemo(() => {
     if (!busca.trim()) return documentos;
