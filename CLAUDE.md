@@ -54,7 +54,8 @@ Só prosseguir após concluir os 3 passos acima.
 7. **Secrets via variável de ambiente** — nunca hardcoded
 8. **Nova feature que toca o banco: começar pela migration** — sempre
 9. **NUNCA copiar os PDFs para dentro de /downloads/tribus-ai-light/**
-10. **Cores de texto no frontend: NUNCA usar `style={{ color: "#..." }}` hardcoded** — usar `text-foreground`, `text-muted-foreground` ou outra classe Tailwind semântica que respeite o dark mode via CSS vars
+10. **Isolamento multi-tenant: a unidade é o TENANT (CNPJ), não o usuário** — `user_id` é só o meio de lookup para obter `tenant_id`; toda query de negócio filtra por `tenant_id`. Todos os usuários do mesmo tenant compartilham cases, documentos e limites de plano.
+11. **Cores de texto no frontend: NUNCA usar `style={{ color: "#..." }}` hardcoded** — usar `text-foreground`, `text-muted-foreground` ou outra classe Tailwind semântica que respeite o dark mode via CSS vars
 11. **Componentes com `useSearchParams()`: SEMPRE envolver em `<Suspense>`** — obrigatório no Next.js 16 para SSG
 
 ### Após implementar

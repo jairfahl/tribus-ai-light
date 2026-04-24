@@ -255,6 +255,13 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 - **Toda lógica de negócio e segurança: backend.** Streamlit captura intenção apenas.
 - **Chamadas à Claude API: somente via engine.py.** Nunca do Streamlit diretamente.
 
+### Isolamento Multi-Tenant
+- **A unidade de isolamento é o TENANT (CNPJ), não o usuário individual.**
+  - Um tenant pode ter N usuários; todos compartilham os mesmos cases, documentos e limites.
+  - Nunca filtrar dados por `user_id` diretamente nas queries de negócio — sempre resolver para `tenant_id` primeiro.
+  - Padrão: `_get_tenant_info_by_user(user_id, conn)` → retorna `tenant_id` → usar `tenant_id` no WHERE.
+  - Exceção permitida: logs de auditoria e `ai_interactions` registram `user_id` para rastreabilidade individual.
+
 ### Banco de Dados
 - **Toda nova feature que toca o banco começa por migration SQL versionada.**
   - Formato: `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)

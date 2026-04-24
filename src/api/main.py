@@ -891,7 +891,14 @@ _CASE_LIMITS: dict[str, int] = {
 
 
 def _get_tenant_info_by_user(user_id: str, conn):
-    """Retorna (tenant_id, subscription_status, plano, trial_ends_at) ou None."""
+    """
+    Retorna (tenant_id, subscription_status, plano, trial_ends_at) para um user_id.
+
+    REGRA DE ISOLAMENTO: a unidade de isolamento é o TENANT (CNPJ), não o usuário.
+    user_id é apenas o ponto de entrada para resolver tenant_id. Toda query de negócio
+    que segue este helper deve filtrar por tenant_id, nunca por user_id diretamente.
+    Todos os usuários do mesmo tenant compartilham cases, documentos e limites de plano.
+    """
     with conn.cursor() as cur:
         cur.execute(
             """SELECT t.id, t.subscription_status, t.plano, t.trial_ends_at
