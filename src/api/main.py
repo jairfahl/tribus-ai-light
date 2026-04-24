@@ -2306,7 +2306,7 @@ class RegisterRequest(BaseModel):
     email:             str  = Field(..., description="E-mail do usuário")
     senha:             str  = Field(..., min_length=8, max_length=128)
     razao_social:      str  = Field(..., min_length=2, max_length=255)
-    cnpj_raiz:         Optional[str] = Field(None, description="CPF (11 dígitos) ou CNPJ (14 dígitos)")
+    cnpj_raiz:         str = Field(..., description="CPF (11 dígitos) ou CNPJ (14 dígitos) — obrigatório")
     lgpd_consent:      bool = Field(..., description="Aceite do tratamento de dados LGPD (obrigatório)")
     marketing_consent: bool = Field(False, description="Opt-in para comunicações de marketing (opcional)")
 
@@ -2324,9 +2324,7 @@ class RegisterRequest(BaseModel):
 
     @field_validator("cnpj_raiz")
     @classmethod
-    def validar_cnpj_raiz(cls, v: Optional[str]) -> Optional[str]:
-        if v is None:
-            return v
+    def validar_cnpj_raiz(cls, v: str) -> str:
         digits = re.sub(r"\D", "", v)
         if len(digits) not in (11, 14):
             raise ValueError("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos).")

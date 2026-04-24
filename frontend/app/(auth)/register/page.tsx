@@ -22,8 +22,8 @@ const schema = z.object({
     .regex(/[!@#$%^&*()\-_=+\[\]{};:'",.<>?/\\|`~]/, "Inclua ao menos um caractere especial"),
   confirmar_senha:  z.string().min(1, "Confirme sua senha"),
   razao_social:     z.string().min(2, "Informe o nome da empresa"),
-  documento:          z.string().optional().refine(
-    (v) => !v || [11, 14].includes(v.replace(/\D/g, "").length),
+  documento:          z.string().min(1, "CNPJ é obrigatório.").refine(
+    (v) => [11, 14].includes(v.replace(/\D/g, "").length),
     "Informe um CPF (11 dígitos) ou CNPJ (14 dígitos)."
   ),
   marketing_consent:  z.boolean().optional(),
@@ -350,7 +350,7 @@ export default function RegisterPage() {
                   {/* CPF / CNPJ (opcional) */}
                   <div>
                     <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2" style={{ color: "#475569" }}>
-                      CPF ou CNPJ
+                      CPF ou CNPJ <span className="text-red-500">*</span>
                       {docTipo && (
                         <span
                           className="text-[10px] font-bold px-1.5 py-0.5 rounded"
@@ -359,7 +359,6 @@ export default function RegisterPage() {
                           {docTipo}
                         </span>
                       )}
-                      <span className="font-normal normal-case" style={{ color: "#94a3b8" }}>(opcional)</span>
                     </label>
                     <Input
                       {...register("documento")}
