@@ -1,0 +1,50 @@
+services:
+  evolution-api:
+    image: atendai/evolution-api:v2.2.3
+    container_name: orbis-evolution
+    restart: unless-stopped
+    environment:
+      SERVER_PORT: 8080
+      AUTHENTICATION_API_KEY: pmetrg-dev-key
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:evolution@evolution-db:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_api
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      LOG_LEVEL: "ERROR,WARN,INFO"
+      DEL_INSTANCE: "false"
+      CONFIG_SESSION_PHONE_VERSION: "2.2413.51"
+      CONFIG_SESSION_PHONE_CLIENT: "WhatsApp"
+      CONFIG_SESSION_PHONE_NAME: "Chrome"
+    depends_on:
+      evolution-db:
+        condition: service_healthy
+    networks:
+      - tribus-ai-net
+      - evolution-net
+
+  evolution-db:
+    image: postgres:15-alpine
+    container_name: orbis-evolution-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: evolution
+    volumes:
+      - orbis-evolution-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - evolution-net
+
+networks:
+  tribus-ai-net:
+    external: true
+  evolution-net:
+
+volumes:
+  orbis-evolution-db-data:

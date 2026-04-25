@@ -1876,6 +1876,21 @@ def _notificar_falha_pagamento(tenant_id: str, conn) -> None:
         logger.error("Erro ao notificar falha de pagamento para tenant %s: %s", tenant_id, exc)
 
 
+def _notificar_novo_assinante_wa(razao_social: str, tenant_id: str, valor) -> None:
+    """Envia WA ao admin quando um novo tenant confirma pagamento pela primeira vez."""
+    from src.notifications.whatsapp import enviar_whatsapp_admin
+    try:
+        mensagem = (
+            f"🎉 *Novo assinante Orbis!*\n\n"
+            f"Empresa: {razao_social}\n"
+            f"Tenant: {tenant_id}\n"
+            f"Valor confirmado: R$ {valor}"
+        )
+        enviar_whatsapp_admin(mensagem)
+    except Exception as exc:
+        logger.error("Erro ao notificar novo assinante via WA: %s", exc)
+
+
 @app.get("/v1/webhooks/asaas")
 async def asaas_webhook_ping():
     """Validação de conectividade do Asaas (GET health check)."""
@@ -1906,7 +1921,7 @@ async def asaas_webhook(request: Request):
     if not novo_status or not external_ref:
         return {"received": True}
 
-    sql = """
+    sql_update = """
         UPDATE tenants
         SET subscription_status = %s,
             updated_at = NOW()
@@ -1915,11 +1930,27 @@ async def asaas_webhook(request: Request):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(sql, (novo_status, external_ref))
+            # Captura status anterior para detectar novo assinante
+            cur.execute(
+                "SELECT subscription_status, razao_social FROM tenants WHERE id = %s LIMIT 1",
+                (external_ref,),
+            )
+            row_antes = cur.fetchone()
+            status_anterior = row_antes[0] if row_antes else None
+            razao_social    = row_antes[1] if row_antes else external_ref
+
+            cur.execute(sql_update, (novo_status, external_ref))
         conn.commit()
         logger.info("Tenant %s → subscription_status='%s' via webhook Asaas.", external_ref, novo_status)
+
         if novo_status == "past_due":
             _notificar_falha_pagamento(external_ref, conn)
+
+        # Notifica admin via WA apenas na primeira ativação (novo assinante)
+        if novo_status == "active" and status_anterior != "active":
+            valor = payment.get("value", "?")
+            _notificar_novo_assinante_wa(razao_social, external_ref, valor)
+
     except Exception as e:
         logger.error("Erro ao atualizar tenant via webhook: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno.")
