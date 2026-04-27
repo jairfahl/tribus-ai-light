@@ -35,6 +35,7 @@ _validate_env()
 # ====================================================================
 
 import hashlib
+import hmac
 import logging
 import os
 import re
@@ -56,7 +57,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from src.api.auth_api import verificar_token_api, verificar_sessao
+from src.api.auth_api import verificar_token_api, verificar_sessao, verificar_admin, verificar_usuario_autenticado
 from auth import autenticar, buscar_usuario_por_email, gerar_hash_senha, gerar_token
 from src.email_service import (
     enviar_email_confirmacao,
@@ -126,11 +127,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_prod_origins = ["https://orbis.tax", "https://www.orbis.tax"]
+_dev_origins  = ["http://localhost:8521", "http://localhost:3000", "http://localhost:3001", "http://localhost:3002"]
+_cors_origins = _prod_origins + (_dev_origins if os.getenv("ENV") == "dev" else [])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://orbis.tax", "https://www.orbis.tax", "http://localhost:8521", "http://localhost:3000", "http://localhost:3001", "http://localhost:3002"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Api-Key"],
 )
 
 # --- Rate limiting (slowapi) ---
@@ -455,7 +459,7 @@ def health():
         normas = [{"codigo": r[0], "nome": r[1]} for r in cur.fetchall()]
         cur.close()
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Banco inacessível: {e}")
+        raise HTTPException(status_code=500, detail="Serviço temporariamente indisponível.")
     finally:
         if conn:
             put_conn(conn)
@@ -820,7 +824,7 @@ def listar_normas():
     ]
 
 
-@app.delete("/v1/ingest/normas/{norma_id}", dependencies=[Depends(verificar_token_api)])
+@app.delete("/v1/ingest/normas/{norma_id}", dependencies=[Depends(verificar_admin)])
 def deletar_norma(norma_id: int):
     """
     Remove uma norma e todos os seus chunks/embeddings da base.
@@ -903,6 +907,89 @@ def _get_tenant_info_by_user(user_id: str, conn):
             (user_id,),
         )
         return cur.fetchone()
+
+
+def _verificar_acesso_caso(case_id: str, user_id: Optional[str], perfil: Optional[str]) -> None:
+    """
+    Verifica se o user tem acesso ao caso pelo tenant.
+
+    - ADMIN: acesso total.
+    - USER sem tenant (raro): acesso apenas a casos sem tenant_id.
+    - USER com tenant: acesso a casos do mesmo tenant + casos sem tenant_id (legado).
+
+    Levanta HTTPException 404 se acesso negado (não revela existência do recurso).
+    """
+    if perfil == "ADMIN":
+        return  # ADMIN tem acesso total
+
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            if user_id:
+                cur.execute(
+                    """SELECT 1 FROM cases
+                       WHERE id = %s
+                       AND (tenant_id IS NULL
+                            OR tenant_id = (SELECT tenant_id FROM users WHERE id = %s LIMIT 1))
+                       LIMIT 1""",
+                    (case_id, user_id),
+                )
+            else:
+                cur.execute(
+                    "SELECT 1 FROM cases WHERE id = %s AND tenant_id IS NULL LIMIT 1",
+                    (case_id,),
+                )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Caso não encontrado.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass  # DB indisponível: deixar o endpoint tratar o erro normalmente
+    finally:
+        if conn:
+            put_conn(conn)
+
+
+def _verificar_acesso_output(output_id: str, user_id: Optional[str], perfil: Optional[str]) -> None:
+    """
+    Verifica se o user tem acesso ao output pelo tenant (via cases.tenant_id).
+
+    Levanta HTTPException 404 se acesso negado.
+    """
+    if perfil == "ADMIN":
+        return
+
+    conn = None
+    try:
+        conn = get_conn()
+        with conn.cursor() as cur:
+            if user_id:
+                cur.execute(
+                    """SELECT 1 FROM outputs o
+                       JOIN cases c ON c.id = o.case_id
+                       WHERE o.id = %s
+                       AND (c.tenant_id IS NULL
+                            OR c.tenant_id = (SELECT tenant_id FROM users WHERE id = %s LIMIT 1))
+                       LIMIT 1""",
+                    (output_id, user_id),
+                )
+            else:
+                cur.execute(
+                    """SELECT 1 FROM outputs o
+                       JOIN cases c ON c.id = o.case_id
+                       WHERE o.id = %s AND c.tenant_id IS NULL LIMIT 1""",
+                    (output_id,),
+                )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Output não encontrado.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+    finally:
+        if conn:
+            put_conn(conn)
 
 
 def _verificar_limite_casos(
@@ -1194,23 +1281,26 @@ def listar_casos(user_id: Optional[str] = Query(None)):
             "%%output ja%%", "%%listar outputs%%", "%%aprovacao%%",
             "%%get estado%%", "%%get output%%",
         ]
-        not_ilike_clauses = " ".join(f"AND titulo NOT ILIKE '{e}'" for e in exclusoes)
+        not_ilike_placeholders = " ".join("AND titulo NOT ILIKE %s" for _ in exclusoes)
+        not_ilike_params = tuple(exclusoes)
 
         if tenant_id:
             cur.execute(
                 f"""SELECT DISTINCT ON (titulo) id, titulo, status, passo_atual, created_at
                    FROM cases
                    WHERE tenant_id = %s
-                     {not_ilike_clauses}
+                     {not_ilike_placeholders}
                    ORDER BY titulo, id DESC""",
-                (tenant_id,),
+                (tenant_id,) + not_ilike_params,
             )
         else:
+            not_ilike_no_and = " AND ".join("titulo NOT ILIKE %s" for _ in exclusoes)
             cur.execute(
                 f"""SELECT DISTINCT ON (titulo) id, titulo, status, passo_atual, created_at
                    FROM cases
-                   WHERE {not_ilike_clauses[4:]}
-                   ORDER BY titulo, id DESC"""
+                   WHERE {not_ilike_no_and}
+                   ORDER BY titulo, id DESC""",
+                not_ilike_params,
             )
         rows = cur.fetchall()
         cur.close()
@@ -1233,10 +1323,11 @@ def listar_casos(user_id: Optional[str] = Query(None)):
             put_conn(conn)
 
 
-@app.get("/v1/cases/{case_id}", dependencies=[Depends(verificar_token_api)])
-def get_caso(case_id: str):
+@app.get("/v1/cases/{case_id}")
+def get_caso(case_id: str, current_user: dict = Depends(verificar_usuario_autenticado)):
     """Retorna o estado completo do caso com histórico."""
     logger.info("GET /v1/cases/%s", case_id)
+    _verificar_acesso_caso(case_id, current_user.get("sub"), current_user.get("perfil"))
     try:
         estado = _protocol_engine.get_estado(case_id)
     except ProtocolError as e:
@@ -1480,10 +1571,11 @@ def gerar_output(req: GerarOutputRequest):
     return _output_result_to_dict(result)
 
 
-@app.get("/v1/outputs/{output_id}", dependencies=[Depends(verificar_token_api)])
-def get_output(output_id: str):
+@app.get("/v1/outputs/{output_id}")
+def get_output(output_id: str, current_user: dict = Depends(verificar_usuario_autenticado)):
     """Retorna output completo com views por stakeholder."""
     logger.info("GET /v1/outputs/%s", output_id)
+    _verificar_acesso_output(output_id, current_user.get("sub"), current_user.get("perfil"))
     try:
         from src.outputs.engine import _load_output
         conn = get_conn()
@@ -1520,10 +1612,11 @@ def aprovar_output(output_id: str, req: AprovarOutputRequest):
     return _output_result_to_dict(result)
 
 
-@app.get("/v1/cases/{case_id}/outputs", dependencies=[Depends(verificar_token_api)])
-def listar_outputs_caso(case_id: str):
+@app.get("/v1/cases/{case_id}/outputs")
+def listar_outputs_caso(case_id: str, current_user: dict = Depends(verificar_usuario_autenticado)):
     """Lista todos os outputs de um caso, ordenados por materialidade DESC."""
     logger.info("GET /v1/cases/%s/outputs", case_id)
+    _verificar_acesso_caso(case_id, current_user.get("sub"), current_user.get("perfil"))
     try:
         outputs = _output_engine.listar_por_caso(case_id)
     except Exception as e:
@@ -1756,7 +1849,7 @@ def budget_pressure():
 # Monitor de fontes oficiais
 # ---------------------------------------------------------------------------
 
-@app.post("/v1/monitor/verificar", dependencies=[Depends(verificar_token_api)])
+@app.post("/v1/monitor/verificar", dependencies=[Depends(verificar_admin)])
 def verificar_fontes():
     """Verifica todas as fontes ativas e detecta novos documentos."""
     logger.info("POST /v1/monitor/verificar")
@@ -1902,7 +1995,7 @@ async def asaas_webhook(request: Request):
              PAYMENT_DELETED, SUBSCRIPTION_INACTIVATED.
     """
     token = request.headers.get("asaas-access-token", "")
-    if token != ASAAS_WEBHOOK_TOKEN:
+    if not ASAAS_WEBHOOK_TOKEN or not hmac.compare_digest(token, ASAAS_WEBHOOK_TOKEN):
         logger.warning("Webhook Asaas: token inválido recebido.")
         raise HTTPException(status_code=401, detail="Token inválido.")
 
@@ -1956,7 +2049,7 @@ async def asaas_webhook(request: Request):
     return {"received": True}
 
 
-@app.get("/v1/monitor/pendentes", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/monitor/pendentes", dependencies=[Depends(verificar_admin)])
 def listar_docs_pendentes():
     """Lista documentos detectados aguardando revisao do usuario."""
     logger.info("GET /v1/monitor/pendentes")
@@ -1984,7 +2077,7 @@ def listar_docs_pendentes():
     }
 
 
-@app.get("/v1/monitor/contagem", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/monitor/contagem", dependencies=[Depends(verificar_admin)])
 def contagem_pendentes():
     """Retorna quantidade de documentos novos pendentes."""
     try:
@@ -1998,7 +2091,7 @@ class AtualizarDocMonitorRequest(BaseModel):
     status: str = Field(..., description="'ingerido' ou 'descartado'")
 
 
-@app.patch("/v1/monitor/documentos/{doc_id}", dependencies=[Depends(verificar_token_api)])
+@app.patch("/v1/monitor/documentos/{doc_id}", dependencies=[Depends(verificar_admin)])
 def atualizar_doc_monitor(doc_id: int, req: AtualizarDocMonitorRequest):
     """Atualiza status de um documento monitorado."""
     logger.info("PATCH /v1/monitor/documentos/%d status=%s", doc_id, req.status)
@@ -2273,7 +2366,7 @@ class SimImpactoISRequest(BaseModel):
         return v
 
 
-@app.get("/v1/admin/metricas", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/admin/metricas", dependencies=[Depends(verificar_admin)])
 def admin_metricas():
     """Resumo agregado para o painel admin."""
     logger.info("GET /v1/admin/metricas")
@@ -2408,9 +2501,9 @@ def register(request: Request, req: RegisterRequest, background_tasks: Backgroun
         cur.execute("""
             INSERT INTO users (id, email, nome, senha_hash, perfil, ativo, tenant_id,
                                lgpd_consent, lgpd_consent_at, marketing_consent,
-                               email_verificado, email_token)
+                               email_verificado, email_token, email_token_expires_at)
             VALUES (%s, %s, %s, %s, 'USER', FALSE, %s,
-                    %s, NOW(), %s, FALSE, %s)
+                    %s, NOW(), %s, FALSE, %s, NOW() + INTERVAL '24 hours')
         """, (user_id, req.email, req.nome, senha_hash, tenant_id,
               req.lgpd_consent, req.marketing_consent, email_token))
 
@@ -2440,7 +2533,8 @@ def register(request: Request, req: RegisterRequest, background_tasks: Backgroun
 
 
 @app.get("/v1/auth/verify-email")
-def verify_email(token: str = Query(..., description="Token de verificação enviado por e-mail")):
+@limiter.limit("5/minute")
+def verify_email(request: Request, token: str = Query(..., description="Token de verificação enviado por e-mail")):
     """
     Confirma o e-mail e ativa a conta. Retorna JWT para login automático.
     Público (sem X-API-Key).
@@ -2452,7 +2546,10 @@ def verify_email(token: str = Query(..., description="Token de verificação env
         cur = conn.cursor()
 
         cur.execute(
-            "SELECT id, email, nome, perfil, tenant_id FROM users WHERE email_token = %s LIMIT 1",
+            """SELECT id, email, nome, perfil, tenant_id FROM users
+               WHERE email_token = %s
+                 AND (email_token_expires_at IS NULL OR email_token_expires_at > NOW())
+               LIMIT 1""",
             (token,),
         )
         row = cur.fetchone()
@@ -2593,7 +2690,8 @@ def forgot_password(request: Request, req: ForgotPasswordRequest, background_tas
 
 
 @app.post("/v1/auth/reset-password")
-def reset_password(req: ResetPasswordRequest):
+@limiter.limit("5/minute")
+def reset_password(request: Request, req: ResetPasswordRequest):
     """
     Redefine a senha usando o token recebido por e-mail.
     Token deve ser válido e não expirado (1h). Público (sem X-API-Key).
@@ -2817,7 +2915,7 @@ class DescontoRequest(BaseModel):
     desconto_percentual: float = Field(..., ge=0, le=100)
 
 
-@app.patch("/v1/admin/tenants/{tenant_id}/desconto", dependencies=[Depends(verificar_token_api)])
+@app.patch("/v1/admin/tenants/{tenant_id}/desconto", dependencies=[Depends(verificar_admin)])
 def admin_set_desconto(tenant_id: str, req: DescontoRequest):
     """Define desconto percentual para o tenant (0–100%). Admin only."""
     logger.info("PATCH /v1/admin/tenants/%s/desconto pct=%.1f", tenant_id, req.desconto_percentual)
@@ -2897,7 +2995,7 @@ class AdminResetSenhaRequest(BaseModel):
         return _validar_senha_forte(v)
 
 
-@app.get("/v1/admin/users", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/admin/users", dependencies=[Depends(verificar_admin)])
 def admin_list_users(
     perfil: Optional[str] = Query(None, description="Filtrar por perfil (ADMIN/USER)"),
     ativo:  Optional[bool] = Query(None, description="Filtrar por status ativo"),
@@ -2958,7 +3056,7 @@ def admin_list_users(
             put_conn(conn)
 
 
-@app.post("/v1/admin/users", dependencies=[Depends(verificar_token_api)])
+@app.post("/v1/admin/users", dependencies=[Depends(verificar_admin)])
 def admin_create_user(req: AdminCreateUserRequest):
     """Cria usuário diretamente pelo admin (sem validação de domínio, sem e-mail de verificação)."""
     logger.info("POST /v1/admin/users email=%s", req.email)
@@ -3010,7 +3108,7 @@ def admin_create_user(req: AdminCreateUserRequest):
             put_conn(conn)
 
 
-@app.patch("/v1/admin/users/{user_id}", dependencies=[Depends(verificar_token_api)])
+@app.patch("/v1/admin/users/{user_id}", dependencies=[Depends(verificar_admin)])
 def admin_update_user(user_id: str, req: AdminUpdateUserRequest):
     """Atualiza nome, perfil ou status ativo de um usuário."""
     logger.info("PATCH /v1/admin/users/%s", user_id)
@@ -3055,7 +3153,7 @@ def admin_update_user(user_id: str, req: AdminUpdateUserRequest):
             put_conn(conn)
 
 
-@app.post("/v1/admin/users/{user_id}/reset-senha", dependencies=[Depends(verificar_token_api)])
+@app.post("/v1/admin/users/{user_id}/reset-senha", dependencies=[Depends(verificar_admin)])
 def admin_reset_senha(user_id: str, req: AdminResetSenhaRequest):
     """Redefine a senha de um usuário."""
     logger.info("POST /v1/admin/users/%s/reset-senha", user_id)
@@ -3090,7 +3188,7 @@ def admin_reset_senha(user_id: str, req: AdminResetSenhaRequest):
 # ADMIN — MAILING (trial expirado não convertido + lgpd_consent)
 # ─────────────────────────────────────────────────────────────────────────────
 
-@app.get("/v1/admin/mailing", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/admin/mailing", dependencies=[Depends(verificar_admin)])
 def admin_mailing(
     status: Optional[str] = Query(None, description="Filtrar: trial_ativo, trial_expirado, convertido, cancelado"),
 ):
@@ -3156,7 +3254,7 @@ def admin_mailing(
             put_conn(conn)
 
 
-@app.get("/v1/admin/mailing/export", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/admin/mailing/export", dependencies=[Depends(verificar_admin)])
 def admin_mailing_export():
     """Exporta lista de mailing em CSV (lgpd_consent=true)."""
     import csv
@@ -3205,7 +3303,7 @@ def admin_mailing_export():
             put_conn(conn)
 
 
-@app.get("/v1/admin/consumo", dependencies=[Depends(verificar_token_api)])
+@app.get("/v1/admin/consumo", dependencies=[Depends(verificar_admin)])
 def admin_consumo(
     dias: int = Query(30, ge=1, le=365, description="Período em dias"),
 ):

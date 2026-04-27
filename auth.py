@@ -29,7 +29,7 @@ if not _jwt_secret:
     raise RuntimeError("JWT_SECRET não configurada. Defina a variável de ambiente JWT_SECRET.")
 JWT_SECRET  = _jwt_secret
 JWT_ALGO    = "HS256"
-JWT_EXPIRY_HOURS = 8  # sessão expira em 8 horas
+JWT_EXPIRY_HOURS = 4  # sessão expira em 4 horas
 
 
 # ─── DATACLASSES ───────────────────────────────────────────────────────────────
