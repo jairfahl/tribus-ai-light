@@ -476,6 +476,13 @@ class LoginRequest(BaseModel):
     email: str = Field(..., description="E-mail do usuário")
     senha: str = Field(..., description="Senha do usuário")
 
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, v: str) -> str:
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("E-mail inválido.")
+        return v.lower().strip()
+
 
 @app.post("/v1/auth/login")
 @limiter.limit("5/minute")
@@ -2610,6 +2617,13 @@ def verify_email(request: Request, token: str = Query(..., description="Token de
 
 class ForgotPasswordRequest(BaseModel):
     email: str = Field(..., description="E-mail do usuário cadastrado")
+
+    @field_validator("email")
+    @classmethod
+    def validar_email(cls, v: str) -> str:
+        if "@" not in v or "." not in v.split("@")[-1]:
+            raise ValueError("E-mail inválido.")
+        return v.lower().strip()
 
 
 class ResetPasswordRequest(BaseModel):
