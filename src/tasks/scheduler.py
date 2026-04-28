@@ -24,7 +24,7 @@ def check_trial_expiring() -> None:
     Cada e-mail é enviado apenas uma vez (rastreado pelas colunas *_sent_at).
     O trial NÃO é prorrogado — e-mails são apenas avisos.
     """
-    from src.db import get_conn, put_conn
+    from src.db.pool import get_conn, put_conn
     from src.email_service import enviar_email_trial_expirando
 
     logger.info("[scheduler] check_trial_expiring iniciado")
@@ -88,7 +88,7 @@ def check_inactive_tenants() -> None:
     e envia e-mail de reengajamento (1 envio por tenant — rastreado por
     inactivity_email_sent_at; reset quando houver nova análise).
     """
-    from src.db import get_conn, put_conn
+    from src.db.pool import get_conn, put_conn
     from src.email_service import enviar_email_inatividade
 
     logger.info("[scheduler] check_inactive_tenants iniciado")
