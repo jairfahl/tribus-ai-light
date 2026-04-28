@@ -36,6 +36,7 @@ _validate_env()
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
@@ -89,7 +90,45 @@ class JobStatus(str, Enum):
     DONE = "done"
     ERROR = "error"
 
-_ingest_jobs: dict[str, dict] = {}
+def _job_set(job_id: str, status: str, message: str = "", result: dict | None = None) -> None:
+    """Persiste ou atualiza status de job de ingestão no banco."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            INSERT INTO ingest_jobs (job_id, status, message, result, updated_at)
+            VALUES (%s, %s, %s, %s::jsonb, NOW())
+            ON CONFLICT (job_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                message = EXCLUDED.message,
+                result = EXCLUDED.result,
+                updated_at = NOW()
+            """,
+            (job_id, status, message, json.dumps(result) if result else None),
+        )
+        conn.commit()
+        cur.close()
+    finally:
+        put_conn(conn)
+
+
+def _job_get(job_id: str) -> dict | None:
+    """Retorna dados do job ou None se não existir."""
+    conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT status, message, result FROM ingest_jobs WHERE job_id = %s",
+            (job_id,),
+        )
+        row = cur.fetchone()
+        cur.close()
+    finally:
+        put_conn(conn)
+    if not row:
+        return None
+    return {"status": row[0], "message": row[1], "result": row[2]}
 
 # --- SEC-07: MIME validation via magic bytes ---
 _MAGIC_BYTES: dict[str, list[bytes]] = {
@@ -606,19 +645,17 @@ def _processar_ingest_background(job_id: str, conteudo: bytes, filename: str,
                                   nome: str, tipo: str, codigo: str):
     """Processa ingestão de documento em background (extração + chunking + embeddings)."""
     try:
-        _ingest_jobs[job_id]["status"] = JobStatus.PROCESSING
+        _job_set(job_id, JobStatus.PROCESSING)
         file_hash = hashlib.md5(conteudo).hexdigest()
 
         try:
             texto = extrair_texto_bytes(conteudo, filename)
         except ValueError as e:
-            _ingest_jobs[job_id]["status"] = JobStatus.ERROR
-            _ingest_jobs[job_id]["message"] = str(e)
+            _job_set(job_id, JobStatus.ERROR, str(e))
             return
 
         if not texto.strip():
-            _ingest_jobs[job_id]["status"] = JobStatus.ERROR
-            _ingest_jobs[job_id]["message"] = "Documento sem texto extraível"
+            _job_set(job_id, JobStatus.ERROR, "Documento sem texto extraível")
             return
 
         doc = DocumentoNorma(
@@ -680,19 +717,16 @@ def _processar_ingest_background(job_id: str, conteudo: bytes, filename: str,
             put_conn(conn)
 
         logger.info("Upload ingerido: %s | chunks=%d | embeddings=%d", nome, len(chunks), n_emb)
-        _ingest_jobs[job_id]["status"] = JobStatus.DONE
-        _ingest_jobs[job_id]["message"] = "Documento incluído com sucesso"
-        _ingest_jobs[job_id]["result"] = {
+        _job_set(job_id, JobStatus.DONE, "Documento incluído com sucesso", {
             "norma_id": norma_id,
             "nome": nome,
             "codigo": codigo,
             "chunks": len(chunks),
             "embeddings": n_emb,
-        }
+        })
     except Exception as e:
         logger.error("Erro em ingest background job=%s: %s", job_id, e, exc_info=True)
-        _ingest_jobs[job_id]["status"] = JobStatus.ERROR
-        _ingest_jobs[job_id]["message"] = str(e)
+        _job_set(job_id, JobStatus.ERROR, str(e))
 
 
 @app.post("/v1/ingest/check-duplicate", dependencies=[Depends(verificar_token_api)])
@@ -772,7 +806,7 @@ def ingest_upload(
         raise HTTPException(status_code=413, detail="Arquivo muito grande. Máximo: 50 MB.")
 
     job_id = str(uuid.uuid4())
-    _ingest_jobs[job_id] = {"status": JobStatus.PENDING, "message": "", "result": None}
+    _job_set(job_id, JobStatus.PENDING)
 
     background_tasks.add_task(
         _processar_ingest_background, job_id, conteudo, file.filename, nome, tipo, codigo
@@ -784,7 +818,7 @@ def ingest_upload(
 @app.get("/v1/ingest/jobs/{job_id}", dependencies=[Depends(verificar_token_api)])
 def get_job_status(job_id: str):
     """Polling de status de um job de ingestão."""
-    job = _ingest_jobs.get(job_id)
+    job = _job_get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job não encontrado")
     resp = {"job_id": job_id, "status": job["status"], "message": job["message"]}
