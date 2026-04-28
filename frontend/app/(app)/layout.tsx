@@ -50,7 +50,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             >
               <Menu size={20} />
             </button>
-            <span className="font-semibold text-sm text-foreground">Tribus-AI</span>
+            <span className="font-semibold text-sm text-foreground">Orbis.tax</span>
           </div>
 
           <div className="px-4 md:px-6 py-6 max-w-5xl mx-auto">
