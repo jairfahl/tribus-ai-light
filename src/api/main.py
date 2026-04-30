@@ -194,7 +194,7 @@ def _shutdown_pool():
 class AnalyzeRequest(BaseModel):
     query: str = Field(..., min_length=1, description="Consulta tributária")
     norma_filter: Optional[list[str]] = Field(None, description="Filtrar por normas: EC132_2023, LC214_2025, LC227_2026")
-    excluir_tipos: Optional[list[str]] = Field(["Outro"], description="Tipos de norma a excluir do RAG (padrão: [\"Outro\"])")
+    excluir_tipos: Optional[list[str]] = Field([], description="Tipos de norma a excluir do RAG (padrão: nenhum excluído)")
     top_k: int = Field(5, ge=1, le=10)
     model: str = Field(MODEL_DEV)
     decompose: bool = Field(False, description="Ativar decomposição de sub-perguntas para queries complexas")
@@ -420,7 +420,7 @@ def analyze(request: Request, req: AnalyzeRequest):
             query=req.query,
             top_k=req.top_k,
             norma_filter=req.norma_filter,
-            excluir_tipos=req.excluir_tipos if req.excluir_tipos is not None else ["Outro"],
+            excluir_tipos=req.excluir_tipos if req.excluir_tipos is not None else [],
             model=req.model,
             decompose=req.decompose,
             contexto_caso=contexto_caso,
@@ -465,7 +465,7 @@ def get_chunks(
     logger.info("GET /v1/chunks q=%s top_k=%d norma=%s", q[:60], top_k, norma)
     try:
         norma_filter = [norma] if norma else None
-        chunks = retrieve(q, top_k=top_k, norma_filter=norma_filter, excluir_tipos=["Outro"])
+        chunks = retrieve(q, top_k=top_k, norma_filter=norma_filter, excluir_tipos=[])
     except Exception as e:
         logger.error("Erro em /v1/chunks: %s", e)
         raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
@@ -776,7 +776,7 @@ def ingest_upload(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Arquivo a ingerir (PDF, DOCX, XLSX, HTML, TXT, MD, CSV)"),
     nome: str = Form(..., description="Nome do documento (ex: IN RFB 2184/2024)"),
-    tipo: str = Form(..., description="Tipo: IN | Resolucao | Parecer | Manual | Outro"),
+    tipo: str = Form(..., description="Tipo: IN | Resolucao | Parecer | Manual | Decreto"),
 ):
     """
     Ingestão assíncrona de documento. Retorna job_id para polling via GET /v1/ingest/jobs/{job_id}.

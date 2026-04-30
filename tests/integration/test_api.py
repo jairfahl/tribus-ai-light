@@ -106,7 +106,7 @@ def test_ingest_upload_arquivo_nao_pdf():
     resp = client.post(
         "/v1/ingest/upload",
         files={"file": ("doc.exe", b"MZ\x90\x00", "application/octet-stream")},
-        data={"nome": "Teste EXE", "tipo": "Outro"},
+        data={"nome": "Teste EXE", "tipo": "IN"},
     )
     assert resp.status_code == 400
 

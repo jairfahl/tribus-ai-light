@@ -115,7 +115,7 @@ def retrieve(
         top_k: Número de resultados finais a retornar.
         rerank_top_n: Candidatos buscados vetorialmente antes do re-ranking.
         norma_filter: Lista de códigos de norma para filtrar (ex: ["LC214_2025"]).
-        excluir_tipos: Lista de tipos de norma a excluir (ex: ["Outro"]).
+        excluir_tipos: Lista de tipos de norma a excluir (ex: ["Decreto"]). Default: nenhum excluído.
         cosine_weight: Peso do score cosine no score híbrido (default 0.7).
         bm25_weight: Peso do score BM25 no score híbrido (default 0.3).
         data_referencia: Data de referência para pre-filter temporal (PTF).

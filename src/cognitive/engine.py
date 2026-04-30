@@ -940,7 +940,7 @@ def _analisar_inner(
         logger.info("PTF: data_ref=%s regime=%s future=%s", data_ref, regime, _is_future)
 
     # P1 — Retrieve (com parâmetros adaptativos)
-    _excluir = excluir_tipos if excluir_tipos is not None else ["Outro"]
+    _excluir = excluir_tipos if excluir_tipos is not None else []
     params = obter_params_adaptativos(query, top_k_base=top_k, rerank_top_n_base=rerank_top_n)
     if params.forcar_multi_norma and norma_filter:
         norma_filter = None  # força busca em todas as normas para queries comparativas
