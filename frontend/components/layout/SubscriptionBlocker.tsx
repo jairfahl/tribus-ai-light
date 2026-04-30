@@ -1,6 +1,10 @@
 "use client";
 import { AlertTriangle, Sparkles, CheckCircle } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/store/auth";
+
+// Páginas liberadas mesmo com trial expirado / assinatura bloqueada
+const BYPASS_PATHS = ["/assinar", "/conta"];
 
 const BLOCKED_STATUSES = ["past_due", "canceled", "inactive"];
 
@@ -111,7 +115,13 @@ function TrialExpiradoScreen() {
 
 export function SubscriptionBlocker({ children }: { children: React.ReactNode }) {
   const { user } = useAuthStore();
+  const pathname = usePathname();
   const status = user?.subscription_status ?? null;
+
+  // Páginas de assinatura e conta ficam sempre acessíveis
+  if (BYPASS_PATHS.some((p) => pathname.startsWith(p))) {
+    return <>{children}</>;
+  }
 
   // Trial expirado: status ainda é "trial" mas trial_ends_at já passou
   if (status === "trial" && user?.trial_ends_at) {
