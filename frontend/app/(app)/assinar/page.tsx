@@ -1,6 +1,5 @@
 "use client";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { CheckCircle, CreditCard, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/shared/Card";
@@ -16,24 +15,56 @@ const BENEFICIOS = [
   "Histórico completo de consultas e decisões",
 ];
 
+/** Formata CPF (000.000.000-00) ou CNPJ (00.000.000/0001-00) enquanto o usuário digita */
+function formatarDocumento(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 14);
+  if (d.length <= 11) {
+    return d
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d)/, "$1.$2")
+      .replace(/(\d{3})(\d{1,2})$/, "$1-$2");
+  }
+  return d
+    .replace(/(\d{2})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1.$2")
+    .replace(/(\d{3})(\d)/, "$1/$2")
+    .replace(/(\d{4})(\d{1,2})$/, "$1-$2");
+}
+
 export default function AssinarPage() {
-  const router = useRouter();
   const { user } = useAuthStore();
   const [billingType, setBillingType] = useState<"CREDIT_CARD" | "PIX">("PIX");
+  const [documento, setDocumento] = useState("");
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState("");
+  const [erroDocumento, setErroDocumento] = useState("");
+
+  const isTrial = !user?.subscription_status || user.subscription_status === "trial";
+
+  const handleDocumento = (v: string) => {
+    setDocumento(formatarDocumento(v));
+    setErroDocumento("");
+  };
 
   const onAssinar = async () => {
     if (!user?.tenant_id) {
       setErro("Tenant não identificado. Entre em contato com o suporte.");
       return;
     }
+
+    const digits = documento.replace(/\D/g, "");
+    if (digits.length !== 11 && digits.length !== 14) {
+      setErroDocumento("Informe um CPF (11 dígitos) ou CNPJ (14 dígitos) válido.");
+      return;
+    }
+
     setLoading(true);
     setErro("");
+    setErroDocumento("");
     try {
       const res = await api.post<{ invoice_url: string; valor: number; desconto_percentual: number }>(
         "/v1/billing/subscribe",
-        { tenant_id: user.tenant_id, billing_type: billingType }
+        { tenant_id: user.tenant_id, billing_type: billingType, cpf_cnpj: digits }
       );
       if (res.data.invoice_url) {
         window.location.href = res.data.invoice_url;
@@ -42,8 +73,11 @@ export default function AssinarPage() {
       }
     } catch (err: unknown) {
       const axiosErr = err as { response?: { status?: number; data?: { detail?: string } } };
+      const detail = axiosErr.response?.data?.detail ?? "";
       if (axiosErr.response?.status === 409) {
         setErro("Você já possui uma assinatura ativa. Entre em contato com o suporte.");
+      } else if (detail === "cpf_cnpj_required" || detail === "cpf_cnpj_invalido") {
+        setErroDocumento("CPF/CNPJ inválido ou não reconhecido. Verifique o número e tente novamente.");
       } else if (axiosErr.response?.status === 502) {
         setErro("O serviço de pagamento está temporariamente indisponível. Tente novamente em instantes.");
       } else {
@@ -53,8 +87,6 @@ export default function AssinarPage() {
       setLoading(false);
     }
   };
-
-  const isTrial = !user?.subscription_status || user.subscription_status === "trial";
 
   return (
     <div className="max-w-md mx-auto px-4 py-10">
@@ -69,23 +101,22 @@ export default function AssinarPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold mb-1 text-foreground">
-        Plano Starter
-      </h1>
+      <h1 className="text-2xl font-bold mb-1 text-foreground">Plano Starter</h1>
       <p className="text-sm mb-6 text-muted-foreground">
         Tudo que você precisa para decisões tributárias fundamentadas.
       </p>
 
       <Card>
         <div className="p-6">
-          {/* Preço promocional */}
+          {/* Preço */}
           <div className="mb-6">
             <div className="flex items-baseline gap-1">
               <span className="text-3xl font-extrabold text-foreground">R$ 297</span>
               <span className="text-sm text-muted-foreground">/mês</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">
-              nos 2 primeiros meses — depois <span className="font-semibold text-foreground">R$ 497/mês</span>
+              nos 2 primeiros meses — depois{" "}
+              <span className="font-semibold text-foreground">R$ 497/mês</span>
             </p>
           </div>
 
@@ -99,7 +130,29 @@ export default function AssinarPage() {
             ))}
           </ul>
 
-          {/* Seletor de pagamento */}
+          {/* CPF / CNPJ */}
+          <div className="mb-5">
+            <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5 text-foreground opacity-70">
+              CPF ou CNPJ
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="000.000.000-00 ou 00.000.000/0001-00"
+              value={documento}
+              onChange={(e) => handleDocumento(e.target.value)}
+              className="w-full h-10 px-3 rounded-lg border text-sm text-foreground bg-background outline-none focus:ring-2 focus:ring-primary/40 transition"
+              style={{ borderColor: erroDocumento ? "#ef4444" : "var(--border)" }}
+            />
+            {erroDocumento && (
+              <p className="text-xs mt-1.5" style={{ color: "#dc2626" }}>{erroDocumento}</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-1.5">
+              Usado pelo gateway de pagamento para identificar sua conta.
+            </p>
+          </div>
+
+          {/* Forma de pagamento */}
           <p className="text-xs font-semibold uppercase tracking-wider mb-3 text-foreground opacity-70">
             Forma de pagamento
           </p>
@@ -122,7 +175,7 @@ export default function AssinarPage() {
             ))}
           </div>
 
-          {/* Erro */}
+          {/* Erro geral */}
           {erro && (
             <div className="mb-4 p-3 rounded-lg" style={{ background: "#fef2f2", border: "1px solid #fecaca" }}>
               <p className="text-xs font-medium" style={{ color: "#dc2626" }}>{erro}</p>

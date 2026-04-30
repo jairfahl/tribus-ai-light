@@ -2797,13 +2797,14 @@ def reset_password(request: Request, req: ResetPasswordRequest):
 class SubscribeRequest(BaseModel):
     tenant_id:    str
     billing_type: str = Field("CREDIT_CARD", pattern="^(CREDIT_CARD|PIX)$")
+    cpf_cnpj:     Optional[str] = None  # CPF (11) ou CNPJ (14) dígitos — obrigatório para assinar
 
 
 @app.post("/v1/billing/subscribe", dependencies=[Depends(verificar_token_api)])
 def billing_subscribe(req: SubscribeRequest):
     """
     Cria customer + assinatura Starter no Asaas e retorna link de pagamento.
-    Sandbox: ASAAS_BASE_URL aponta para sandbox.asaas.com.
+    cpf_cnpj é obrigatório: o Asaas valida o documento e cria o customer.
     Valor base: R$ 497,00 — descontado conforme tenants.desconto_percentual.
     """
     logger.info("POST /v1/billing/subscribe tenant_id=%s billing_type=%s", req.tenant_id, req.billing_type)
@@ -2817,7 +2818,7 @@ def billing_subscribe(req: SubscribeRequest):
             """SELECT razao_social, asaas_customer_id, asaas_subscription_id,
                       desconto_percentual,
                       (SELECT email FROM users WHERE tenant_id = t.id AND perfil = 'ADMIN' LIMIT 1),
-                      cnpj_raiz
+                      cpf_cnpj
                FROM tenants t WHERE t.id = %s LIMIT 1""",
             (req.tenant_id,),
         )
@@ -2825,14 +2826,30 @@ def billing_subscribe(req: SubscribeRequest):
         if not row:
             raise HTTPException(status_code=404, detail="Tenant não encontrado.")
 
-        razao_social, asaas_customer_id, asaas_subscription_id, desconto, email_admin, cnpj = row
+        razao_social, asaas_customer_id, asaas_subscription_id, desconto, email_admin, cpf_cnpj_db = row
 
         if asaas_subscription_id:
             raise HTTPException(status_code=409, detail="Assinatura já existe para este tenant.")
 
+        # CPF/CNPJ: prioriza o enviado na request, senão usa o do banco
+        cpf_cnpj = req.cpf_cnpj or cpf_cnpj_db or ""
+        digits = "".join(c for c in cpf_cnpj if c.isdigit())
+        if len(digits) not in (11, 14):
+            raise HTTPException(
+                status_code=422,
+                detail="cpf_cnpj_required",
+            )
+
+        # Salva CPF/CNPJ no tenant se ainda não estava salvo
+        if req.cpf_cnpj and req.cpf_cnpj != cpf_cnpj_db:
+            cur.execute(
+                "UPDATE tenants SET cpf_cnpj = %s WHERE id = %s",
+                (digits, req.tenant_id),
+            )
+
         # Criar customer se ainda não existe
         if not asaas_customer_id:
-            customer = criar_customer(req.tenant_id, razao_social, email_admin or "", cnpj or "")
+            customer = criar_customer(req.tenant_id, razao_social, email_admin or "", digits)
             asaas_customer_id = customer["id"]
             cur.execute(
                 "UPDATE tenants SET asaas_customer_id = %s WHERE id = %s",
@@ -2888,9 +2905,13 @@ def billing_subscribe(req: SubscribeRequest):
     except httpx.HTTPStatusError as e:
         if conn:
             conn.rollback()
-        logger.error("Erro Asaas em /v1/billing/subscribe (HTTP %s): %s", e.response.status_code, e, exc_info=True)
+        logger.error("Erro Asaas em /v1/billing/subscribe (HTTP %s): %s", e.response.status_code, e.response.text)
         if e.response.status_code == 401:
             raise HTTPException(status_code=502, detail="Erro de configuração do gateway de pagamento. Entre em contato com o suporte.")
+        if e.response.status_code == 400:
+            body = e.response.text.lower()
+            if "cpfcnpj" in body or "cpf" in body or "cnpj" in body or "document" in body:
+                raise HTTPException(status_code=422, detail="cpf_cnpj_invalido")
         raise HTTPException(status_code=502, detail="O serviço de pagamento está temporariamente indisponível. Tente novamente em instantes.")
     except Exception as e:
         if conn:
