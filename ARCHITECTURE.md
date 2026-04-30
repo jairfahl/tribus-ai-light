@@ -21,7 +21,8 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ## 2. Raiz e Estrutura do Projeto
 
 ```
-/Users/jairfahl/Downloads/tribus-ai-light/
+/Users/jairfahl/Downloads/orbis.tax/    ← local
+/root/tribus-ai-light/                  ← VPS (69.62.100.24, alias SSH: orbis)
 ├── auth.py                   ← Autenticação JWT + bcrypt (usado pela API)
 ├── admin.py                  ← Painel admin Streamlit (LEGADO — não modificar)
 ├── ARCHITECTURE.md           ← Este arquivo
@@ -50,7 +51,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   │   ├── simuladores/      ← Simuladores de carga tributária (URL: /simuladores)
 │   │   │   ├── documentos/       ← Histórico de outputs + modal de detalhes (URL: /documentos)
 │   │   │   ├── base-conhecimento/ ← Upload normas + Monitor de Fontes (URL: /base-conhecimento)
-│   │   │   ├── assinar/          ← Plano Starter R$297/2 meses → R$497/mês — Asaas PIX/Cartão (URL: /assinar)
+│   │   │   ├── assinar/          ← Plano Starter R$297/2 meses → R$497/mês — CPF/CNPJ + PIX/Cartão → Asaas invoice_url (URL: /assinar)
 │   │   │   └── conta/page.tsx    ← Minha Conta: dados, status assinatura, CancelModal exit survey (URL: /conta)
 │   │   ├── politica-privacidade/page.tsx ← Política de Privacidade LGPD — pública estática (URL: /politica-privacidade)
 │   │   ├── termos-de-uso/page.tsx        ← Termos de Uso — pública estática (URL: /termos-de-uso)
@@ -62,10 +63,11 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │       └── consumo/page.tsx   ← Dashboard de consumo de API: resumo, por dia, por tenant, por serviço (ADMIN)
 │   ├── components/
 │   │   ├── layout/
-│   │   │   ├── Sidebar.tsx       ← Nav dark navy (#1a2f4e) + logo + avatar com iniciais
-│   │   │   ├── AuthGuard.tsx     ← Redirect não-autenticados
-│   │   │   ├── AdminGuard.tsx    ← Redirect não-ADMIN
-│   │   │   └── OnboardingModal.tsx ← Progressive profiling step 0 + catch block com feedback de erro
+│   │   │   ├── Sidebar.tsx           ← Nav dark navy (#1a2f4e) + logo + avatar com iniciais; banner trial apenas quando ainda ativo
+│   │   │   ├── AuthGuard.tsx         ← Redirect não-autenticados
+│   │   │   ├── AdminGuard.tsx        ← Redirect não-ADMIN
+│   │   │   ├── SubscriptionBlocker.tsx ← Intercept billing: trial expirado → TrialExpiradoScreen; past_due/canceled/inactive → tela de bloqueio; bypass /assinar + /conta
+│   │   │   └── OnboardingModal.tsx   ← Progressive profiling step 0 + catch block com feedback de erro
 │   │   ├── shared/
 │   │   │   ├── Card.tsx          ← shadow-card + hover lift opcional (prop clickable)
 │   │   │   ├── BadgeCriticidade.tsx ← px-4 py-1.5 + shadow colorida por nível
@@ -88,7 +90,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ├── src/
 │   ├── api/
 │   │   ├── main.py               ← FastAPI — 40+ endpoints REST
-│   │   └── auth_api.py           ← Dependency verificar_token_api (X-Api-Key)
+│   │   └── auth_api.py           ← Dependencies: verificar_token_api (X-Api-Key), verificar_usuario_autenticado (JWT), verificar_acesso_tenant (billing enforcement → HTTP 402)
 │   ├── cognitive/
 │   │   ├── engine.py             ← Orquestração cognitiva principal
 │   │   ├── criticidade.py        ← Classificação de criticidade 3 níveis (G17)
@@ -101,7 +103,8 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   ├── decomposer.py, remissao_resolver.py
 │   │   └── vigencia_checker.py
 │   ├── billing/
-│   │   ├── access.py, mau_tracker.py
+│   │   ├── access.py             ← tenant_tem_acesso() + dias_restantes_trial(); usado por verificar_acesso_tenant
+│   │   └── mau_tracker.py
 │   ├── tasks/
 │   │   ├── __init__.py
 │   │   └── scheduler.py          ← APScheduler jobs diários: check_trial_expiring (09h UTC) + check_inactive_tenants (09h30 UTC)
@@ -182,7 +185,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | Embeddings | Voyage-3 |
 | LLM | Claude Sonnet 4.6 |
 | E-mail | Resend (domínio orbis.tax verificado, DKIM configurado) |
-| Billing | Asaas (sandbox ativo) |
+| Billing | Asaas (produção: `https://api.asaas.com/v3`) |
 | Rate limiting | slowapi 0.1.9 + limits 3.6.0 |
 | Infraestrutura | Docker Compose (4 serviços: db, api, ui, nginx) |
 | Container DB | tribus-ai-db |
@@ -206,14 +209,15 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | `frontend/app/(auth)/login/` | Tela de login — chama `/v1/auth/login`, salva token no Zustand | Zero lógica de negócio |
 | `frontend/app/(auth)/register/` | Cadastro com Zod (senha forte + LGPD) — chama `/v1/auth/register` | Zero lógica de negócio |
 | `frontend/app/(auth)/verify-email/` | Verificação de e-mail com token — chama `/v1/auth/verify-email` com Suspense boundary | Zero lógica de negócio |
-| `frontend/app/(app)/assinar/` | Seleção PIX/Cartão e chamada `/v1/billing/subscribe` — redireciona para invoice_url Asaas | Zero lógica de cobrança |
+| `frontend/app/(app)/assinar/` | Coleta CPF/CNPJ + seleção PIX/Cartão e chamada `/v1/billing/subscribe` — redireciona para invoice_url Asaas | Zero lógica de cobrança |
+| `frontend/components/layout/SubscriptionBlocker.tsx` | Intercept de acesso: trial expirado → `TrialExpiradoScreen`; `past_due`/`canceled`/`inactive` → tela de bloqueio com CTA para `/assinar`; bypass `/assinar` e `/conta` | Zero lógica tributária |
 | `frontend/app/admin/mailing/` | Exibe leads com filtros, exporta CSV, aplica desconto por tenant | Zero lógica de autenticação |
 | `frontend/app/admin/consumo/` | Dashboard de consumo de API: resumo geral, custo por dia, por tenant, por serviço/modelo (ADMIN only) | Zero lógica de billing |
 | `frontend/components/layout/AuthGuard.tsx` | Redireciona não-autenticados para /login | Zero rendering de conteúdo |
 | `frontend/lib/api.ts` | Instância axios com `Authorization: Bearer` + `X-Api-Key` em todos os requests | Zero lógica de domínio |
 | `frontend/store/auth.ts` | Estado global de auth (user, token) com persistência localStorage | Zero chamadas diretas à API |
 | `src/api/main.py` | 40+ endpoints REST, validação, serialização, rate limiting (slowapi) | Zero lógica de domínio — delega ao engine |
-| `src/api/auth_api.py` | Dependency `verificar_token_api` — valida `X-Api-Key` em todos os endpoints protegidos | Zero lógica tributária |
+| `src/api/auth_api.py` | Dependencies: `verificar_token_api` (X-Api-Key), `verificar_usuario_autenticado` (JWT), `verificar_acesso_tenant` (billing — HTTP 402 se trial expirado/cancelado/inadimplente; ADMIN bypassa) | Zero lógica tributária |
 | `src/email_service.py` | Envio de e-mail transacional via Resend: verificação, recuperação de senha, trial D-3/D-1, falha de pagamento, inatividade 14 dias | Zero lógica de negócio |
 | `src/tasks/scheduler.py` | APScheduler jobs diários de retenção: check_trial_expiring (D-3/D-1), check_inactive_tenants (14 dias sem análise) | Zero lógica tributária |
 | `frontend/app/(app)/conta/page.tsx` | Minha Conta: exibe dados, status assinatura, CancelModal com exit survey → POST /v1/billing/cancel | Zero lógica de cobrança |
@@ -227,6 +231,7 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | `src/cognitive/proatividade.py` | Detecta padrões de tags e gera sugestões de monitoramento | Zero rendering |
 | `src/cognitive/monitoramento_p6.py` | Ativa/encerra monitoramento P6, verifica premissas | Zero rendering |
 | `src/cognitive/aprendizado_institucional.py` | Extrai heurísticas de casos encerrados, expira com 6 meses | Zero rendering |
+| `src/billing/access.py` | `tenant_tem_acesso(tenant_dict)` → `(bool, motivo_str)`; `dias_restantes_trial(trial_ends_at)` → int; usado por `verificar_acesso_tenant` | Zero lógica tributária |
 | `src/billing/mau_tracker.py` | Registra e consulta MAU por análise realizada (DEC-08) | Zero lógica tributária |
 | `src/observability/usage.py` | Registra consumo de tokens (`registrar_uso`) com `tenant_id` para atribuição de custo por cliente | Zero lógica tributária |
 | `src/outputs/legal_hold.py` | Ativa/desativa/verifica Legal Hold em outputs e interações | Zero rendering |
@@ -294,7 +299,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 ### Banco de Dados
 - **Toda nova feature que toca o banco começa por migration SQL versionada.**
   - Formato: `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)
-  - Migration mais recente: `129_api_usage_tenant.sql` → próxima será `130_...`
+  - Migration mais recente: `132_tenant_cpf_cnpj.sql` → próxima será `133_...`
 - **Nunca alterar schema sem migration.** ALTER TABLE direto no banco sem arquivo = proibido.
 - **Antes de migration com FK, verificar se tabela-pai existe** com `\d <tabela>` no container.
 
@@ -317,7 +322,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 
 ### Gate de Qualidade
 - **RDMs da Onda 1.5 estão implementados** (HyDE, Multi-Query, Step-Back, Context Budget, Lockfile). Não reimplementar.
-- **667+ testes devem passar** após qualquer modificação (referência 2026-04-25).
+- **762+ testes devem passar** após qualquer modificação (referência 2026-04-30).
   - Comando: `.venv/bin/python -m pytest tests/unit/ tests/integration/ tests/linters/ -v --tb=short`
   - Zero novas regressões toleradas — qualquer falha nova deve ser corrigida antes de entregar
   - Linters AST: `tests/linters/` — 12 testes (embedding lock, P4 guard, citation contract, PTF)
@@ -379,7 +384,7 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | Fluxo de cadastro com e-mail | ✅ Implementado | /register → Resend email → /verify-email?token= → /analisar |
 | Validação de senha forte | ✅ Implementado | Zod (frontend) + Pydantic @field_validator (backend): 8+ chars, maiúsc, minúsc, número, especial |
 | E-mail transacional via Resend | ✅ Implementado | Domínio orbis.tax verificado, DKIM configurado (split strings por limite DNS 255 chars) |
-| Asaas billing integrado | ✅ Implementado | /assinar page + /v1/billing/subscribe + webhook /v1/webhooks/asaas — sandbox ativo |
+| Asaas billing integrado | ✅ Implementado | /assinar page + /v1/billing/subscribe + webhook /v1/webhooks/asaas — produção ativa |
 | Admin mailing page | ✅ Implementado | Painel de leads com filtros trial/convertido/cancelado, exportação CSV, desconto inline por tenant |
 | Dark mode CSS vars | ✅ Implementado | @media prefers-color-scheme dark em globals.css — texto usa text-foreground/text-muted-foreground |
 | Monitor de Fontes Oficiais no frontend | ✅ Implementado | Verificar agora + docs pendentes + descartar — página base-conhecimento |
@@ -431,6 +436,13 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | usage.py simplificado — tenant_id + sem alerta de crédito | ✅ Implementado Abril 2026 | Removidos CreditStatus, obter_status_creditos, API_CREDIT_LIMIT_USD; registrar_uso agora recebe tenant_id; /v1/credits simplificado (retorna total_gasto + detalhamento) |
 | WhatsApp provider — Evolution API → Z-API | ✅ Implementado Abril 2026 | Evolution API (self-hosted) descartada: IP Hostinger bloqueado pelo WhatsApp no handshake Baileys. Migração para Z-API gerenciado (z-api.io). Interface `enviar_whatsapp_admin()` inalterada; vars EVOLUTION_* → ZAPI_INSTANCE_ID + ZAPI_TOKEN + ZAPI_SECURITY_TOKEN; sem container adicional em prod |
 | engine.py propaga tenant_id pelo pipeline | ✅ Implementado Abril 2026 | _chamar_llm aceita tenant_id; _analisar_inner resolve tenant_id do user_id via SELECT antes do PTF; propagado para todas as chamadas LLM (SPD, MQ, SB, HyDE, loop quality) |
+| Billing access enforcement no FastAPI | ✅ Implementado Abril 2026 | `verificar_acesso_tenant` dependency em 9 endpoints de negócio — HTTP 402 se trial expirado/cancelado/inadimplente; ADMIN bypassa; trial checker em `src/billing/access.py` |
+| SubscriptionBlocker no frontend | ✅ Implementado Abril 2026 | Componente wrapping `(app)/layout.tsx`; intercepta trial expirado → `TrialExpiradoScreen` (CTA vendedora); past_due/canceled/inactive → bloqueio com link para /assinar; bypass /assinar e /conta |
+| CPF/CNPJ coletado na assinatura | ✅ Implementado Abril 2026 | Campo na página /assinar com auto-format (CPF 000.000.000-00 / CNPJ 00.000.000/0001-00); validado pelo Asaas; persistido em `tenants.cpf_cnpj` (migration 132) |
+| Migrations 130, 131, 132 aplicadas em prod | ✅ Abril 2026 | 130/131: intermediárias (ver git); 132: `tenants.cpf_cnpj VARCHAR(18)` — coletado no ato da assinatura |
+| ASAAS_BASE_URL corrigido para produção | ✅ Abril 2026 | `.env.prod` na VPS: `https://api.asaas.com/v3` (era `sandbox.asaas.com` com chave `$aact_prod_...` → 401 → 500) |
+| Billing: cancel-and-recreate para trocar método de pagamento | ✅ Implementado Abril 2026 | Se `asaas_subscription_id` existe mas `subscription_status != active`, cancela pending no Asaas e recria — permite troca PIX↔Cartão antes de pagar |
+| tests/unit/test_acesso_tenant.py | ✅ Implementado Abril 2026 | 19 testes cobrindo `tenant_tem_acesso`, `dias_restantes_trial` e `verificar_acesso_tenant` |
 
 ---
 

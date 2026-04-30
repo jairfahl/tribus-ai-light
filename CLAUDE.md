@@ -102,10 +102,14 @@ Pipeline: `PTF → Adaptive → SPD → Retrieve → CRAG → [MQ|SB|HyDE] → Q
 | **Admin Consumo API — /admin/consumo + GET /v1/admin/consumo (migrations 128+129)** | ✅ Abril 2026 |
 | **tenant_id no pipeline engine.py + usage.py simplificado** | ✅ Abril 2026 |
 | **WhatsApp provider: Evolution API → Z-API (src/notifications/whatsapp.py)** | ✅ Abril 2026 |
+| **Billing enforcement FastAPI — verificar_acesso_tenant + HTTP 402** | ✅ Abril 2026 |
+| **SubscriptionBlocker frontend — TrialExpiradoScreen + bypass /assinar e /conta** | ✅ Abril 2026 |
+| **CPF/CNPJ na assinatura — migration 132 + campo /assinar + validação Asaas** | ✅ Abril 2026 |
+| **ASAAS_BASE_URL corrigido para produção (era sandbox com chave prod)** | ✅ Abril 2026 |
 
-- **Suite de testes:** 744 passando, ~9 falhas conhecidas pré-existentes (referência 2026-04-28)
+- **Suite de testes:** 762 passando, ~10 falhas conhecidas pré-existentes (referência 2026-04-30)
 - **Linters AST:** `tests/linters/` — 12 testes: embedding lock, P4 guard, citation contract, PTF
-- **Última migration:** `129_api_usage_tenant.sql` → próxima: `130_...`
+- **Última migration:** `132_tenant_cpf_cnpj.sql` → próxima: `133_...`
 
 ---
 
@@ -135,7 +139,7 @@ bash scripts/quality_scorecard.sh
 → ver `skills/new-migration.md` para processo completo
 
 ```bash
-ls migrations/ | sort | tail -5   # Última: 129 → próxima: 130
+ls migrations/ | sort | tail -5   # Última: 132 → próxima: 133
 docker exec -i tribus-ai-db psql -U taxmind -d taxmind_db < migrations/NNN_descricao.sql
 ```
 

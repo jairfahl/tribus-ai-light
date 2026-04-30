@@ -1,7 +1,7 @@
 # Schema do Banco — 31 Tabelas
 
 **Banco:** PostgreSQL 16 + pgvector | **Container:** `tribus-ai-db`
-**Última migration:** `129_api_usage_tenant.sql` → próxima: `130_...`
+**Última migration:** `132_tenant_cpf_cnpj.sql` → próxima: `133_...`
 
 ---
 
@@ -87,7 +87,7 @@
 
 | Tabela | Descrição |
 |--------|-----------|
-| `tenants` | Tenants com plano, trial, status pagamento, `desconto_percentual` (m124), churn tracking (m127); referenciado em `cases.tenant_id` (m128) e `api_usage.tenant_id` (m129) |
+| `tenants` | Tenants com plano, trial, status pagamento, `desconto_percentual` (m124), churn tracking (m127), `cpf_cnpj` VARCHAR(18) (m132); referenciado em `cases.tenant_id` (m128) e `api_usage.tenant_id` (m129) |
 | `users` | Usuários + onboarding + lgpd_consent + email_verificado + reset_token (m125) + tipo_atuacao VARCHAR(100) (m122) |
 | `mau_records` | Monthly Active Users por tenant/mês (DEC-08) |
 
@@ -100,3 +100,4 @@
 - `tipo_atuacao` é VARCHAR(100) desde migration 122 (era VARCHAR(20) — bug silencioso corrigido)
 - `cases.tenant_id` adicionado em m128 (NULL-able, FK tenants) — enforcement de limites por plano
 - `api_usage.tenant_id` adicionado em m129 (NULL-able UUID) — chamadas de ingestão/regression podem ser NULL; índices em (tenant_id) e (tenant_id, created_at)
+- `tenants.cpf_cnpj` adicionado em m132 (VARCHAR(18), NULL-able) — coletado no ato da assinatura; validado pelo Asaas (CPF 11 dígitos / CNPJ 14 dígitos)
