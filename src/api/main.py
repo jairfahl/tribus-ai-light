@@ -2818,7 +2818,7 @@ def billing_subscribe(req: SubscribeRequest):
             """SELECT razao_social, asaas_customer_id, asaas_subscription_id,
                       desconto_percentual,
                       (SELECT email FROM users WHERE tenant_id = t.id AND perfil = 'ADMIN' LIMIT 1),
-                      cpf_cnpj
+                      cpf_cnpj, subscription_status
                FROM tenants t WHERE t.id = %s LIMIT 1""",
             (req.tenant_id,),
         )
@@ -2826,10 +2826,24 @@ def billing_subscribe(req: SubscribeRequest):
         if not row:
             raise HTTPException(status_code=404, detail="Tenant não encontrado.")
 
-        razao_social, asaas_customer_id, asaas_subscription_id, desconto, email_admin, cpf_cnpj_db = row
+        razao_social, asaas_customer_id, asaas_subscription_id, desconto, email_admin, cpf_cnpj_db, sub_status = row
 
-        if asaas_subscription_id:
+        # Assinatura ativa (paga): bloquear
+        if asaas_subscription_id and sub_status == "active":
             raise HTTPException(status_code=409, detail="Assinatura já existe para este tenant.")
+
+        # Subscription pendente (não paga): cancelar no Asaas e recriar com novo billing_type
+        if asaas_subscription_id and sub_status != "active":
+            try:
+                from src.billing.asaas import cancelar_assinatura
+                cancelar_assinatura(asaas_subscription_id)
+            except Exception as e:
+                logger.warning("Falha ao cancelar subscription pendente %s: %s", asaas_subscription_id, e)
+            cur.execute(
+                "UPDATE tenants SET asaas_subscription_id = NULL WHERE id = %s",
+                (req.tenant_id,),
+            )
+            asaas_subscription_id = None
 
         # CPF/CNPJ: prioriza o enviado na request, senão usa o do banco
         cpf_cnpj = req.cpf_cnpj or cpf_cnpj_db or ""
