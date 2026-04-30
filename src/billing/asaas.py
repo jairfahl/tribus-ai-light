@@ -21,19 +21,29 @@ def _headers() -> dict:
     }
 
 
+def _cnpj_valido(cnpj: str) -> bool:
+    """Verifica se a string é um CPF (11 dígitos) ou CNPJ (14 dígitos) numérico."""
+    digits = "".join(c for c in (cnpj or "") if c.isdigit())
+    return len(digits) in (11, 14)
+
+
 def criar_customer(tenant_id: str, razao_social: str, email: str, cnpj: str) -> dict:
     """
     Cria um customer no Asaas para o tenant.
     Retorna o objeto customer com o campo 'id' (customer_id Asaas).
+    cpfCnpj só é enviado se for um CPF/CNPJ válido (11 ou 14 dígitos numéricos).
     """
-    payload = {
-        "name": razao_social,
+    payload: dict = {
+        "name": razao_social or "Cliente Orbis.tax",
         "email": email,
-        "cpfCnpj": cnpj,
-        "externalReference": tenant_id,  # nosso tenant_id como referência cruzada
+        "externalReference": tenant_id,
         "notificationDisabled": False,
     }
+    if _cnpj_valido(cnpj):
+        payload["cpfCnpj"] = "".join(c for c in cnpj if c.isdigit())
     resp = httpx.post(f"{ASAAS_BASE_URL}/customers", json=payload, headers=_headers())
+    if not resp.is_success:
+        logger.error("Asaas criar_customer %s: %s", resp.status_code, resp.text)
     resp.raise_for_status()
     return resp.json()
 
