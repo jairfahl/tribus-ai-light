@@ -1284,6 +1284,14 @@ def get_limite_casos(user_id: str = Query(...)):
     conn = None
     try:
         conn = get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT perfil FROM users WHERE id = %s LIMIT 1", (user_id,))
+            perfil_row = cur.fetchone()
+        is_admin = perfil_row and perfil_row[0] == "ADMIN"
+
+        if is_admin:
+            return {"usado": 0, "limite": -1, "plano": "enterprise", "subscription_status": "active"}
+
         row = _get_tenant_info_by_user(user_id, conn)
         if not row:
             return {"usado": 0, "limite": 0, "plano": "starter", "subscription_status": "trial"}

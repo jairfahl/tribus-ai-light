@@ -83,7 +83,7 @@ import os, sys
 os.environ.setdefault('DATABASE_URL', 'postgresql://taxmind:taxmind123@localhost:5436/taxmind_db')
 os.environ.setdefault('LOCKFILE_MODE', 'WARN')
 try:
-    from src.integrity.lockfile_manager import LockfileManager
+    from src.integrity.lockfile_manager import gerar_lockfile, verificar_integridade
     print('OK: módulo lockfile importado')
 except Exception as e:
     print(f'WARN: {e}')
