@@ -28,3 +28,6 @@ limits==3.6.0
 python-magic==0.4.27
 # Churn retention scheduler
 apscheduler==3.11.2
+# PDF export
+weasyprint>=60.0
+jinja2>=3.1.0

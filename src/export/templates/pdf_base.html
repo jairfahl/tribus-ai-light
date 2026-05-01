@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<style>
+@page {
+  size: A4;
+  margin: 25mm 20mm;
+  @top-center {
+    content: element(header);
+  }
+  @bottom-center {
+    content: element(footer);
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: sans-serif;
+  font-size: 10pt;
+  color: #1a1a2e;
+  line-height: 1.6;
+  position: relative;
+}
+
+/* Watermark */
+body::before {
+  content: "{{ watermark_text }}";
+  position: fixed;
+  top: 45%;
+  left: 50%;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  font-size: 72pt;
+  color: rgba(0, 0, 0, 0.06);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Header running element */
+#page-header {
+  position: running(header);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1.5px solid #1a2f4e;
+  padding-bottom: 4px;
+  font-size: 8pt;
+  color: #555;
+}
+#page-header .brand { font-weight: 700; color: #1a2f4e; font-size: 9pt; letter-spacing: 0.5px; }
+#page-header .tenant-info { text-align: right; }
+
+/* Footer running element */
+#page-footer {
+  position: running(footer);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid #ddd;
+  padding-top: 4px;
+  font-size: 7.5pt;
+  color: #888;
+}
+#page-footer .disclaimer { max-width: 70%; }
+#page-footer .page-num::after { content: counter(page) " / " counter(pages); }
+
+/* Title block */
+.doc-title {
+  margin-bottom: 20px;
+  border-left: 4px solid #1a2f4e;
+  padding-left: 12px;
+}
+.doc-title .classe-label {
+  font-size: 8pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #1a2f4e;
+  margin-bottom: 4px;
+}
+.doc-title h1 { font-size: 16pt; font-weight: 700; color: #1a2f4e; }
+.doc-title .meta { font-size: 8pt; color: #777; margin-top: 4px; }
+
+/* Badges */
+.badge {
+  display: inline-block;
+  font-size: 7.5pt;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 100px;
+  margin-right: 4px;
+}
+.badge-legal-hold { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+.badge-dossie { background: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff; }
+.badge-pmx { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+
+/* Content */
+.section { margin-bottom: 20px; }
+.section-title {
+  font-size: 9pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #1a2f4e;
+  border-bottom: 1px solid #e0e0e0;
+  padding-bottom: 4px;
+  margin-bottom: 10px;
+}
+.section p { margin-bottom: 8px; }
+.section ul, .section ol { padding-left: 18px; margin-bottom: 8px; }
+.section li { margin-bottom: 3px; }
+
+/* P1→P6 steps */
+.step-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+  page-break-inside: avoid;
+}
+.step-num {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #1a2f4e;
+  color: white;
+  font-size: 9pt;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.step-content { flex: 1; }
+.step-label { font-size: 8pt; font-weight: 700; color: #1a2f4e; margin-bottom: 3px; }
+.step-body { font-size: 9pt; }
+
+/* Materialidade */
+.materialidade-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 14px;
+}
+.mat-dot {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+}
+.mat-filled { background: #1a2f4e; }
+.mat-empty { background: #e0e0e0; }
+
+/* Hash block */
+.hash-block {
+  margin-top: 24px;
+  padding: 8px 12px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  font-size: 7pt;
+  color: #666;
+  word-break: break-all;
+}
+.hash-label { font-weight: 700; color: #333; margin-right: 6px; }
+
+/* Governance panel */
+.gov-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.gov-cell {
+  background: #f4f6fa;
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.gov-cell-label { font-size: 7.5pt; font-weight: 700; color: #555; margin-bottom: 2px; }
+.gov-cell-value { font-size: 9pt; color: #1a2f4e; font-weight: 600; }
+
+/* Stakeholder views */
+.stakeholder-block {
+  background: #f8f9fa;
+  border-left: 3px solid #1a2f4e;
+  padding: 8px 12px;
+  margin-bottom: 10px;
+  border-radius: 0 4px 4px 0;
+}
+.stakeholder-name { font-size: 8pt; font-weight: 700; color: #1a2f4e; margin-bottom: 4px; }
+.stakeholder-text { font-size: 9pt; }
+
+/* Disclaimer box */
+.disclaimer-box {
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 8pt;
+  color: #92400e;
+  margin-top: 14px;
+}
+</style>
+</head>
+<body>
+
+<!-- Running header -->
+<div id="page-header">
+  <span class="brand">Orbis.tax</span>
+  <span class="tenant-info">
+    {{ tenant_nome }}{% if tenant_cnpj %} &middot; {{ tenant_cnpj }}{% endif %}
+  </span>
+</div>
+
+<!-- Running footer -->
+<div id="page-footer">
+  <span class="disclaimer">
+    Gerado por Orbis.tax &middot; Sistema de apoio à decisão tributária &middot;
+    Não substitui parecer jurídico especializado.
+  </span>
+  <span class="page-num"></span>
+</div>
+
+<!-- Document title -->
+<div class="doc-title">
+  <div class="classe-label">{{ classe_label }}</div>
+  <h1>{{ titulo }}</h1>
+  <div class="meta">
+    Gerado em {{ data_geracao }}
+    {% if case_titulo %} &middot; Caso: {{ case_titulo }}{% endif %}
+    {% if legalhold %}
+      &nbsp;<span class="badge badge-legal-hold">Legal Hold</span>
+    {% endif %}
+    {% if is_dossie %}
+      &nbsp;<span class="badge badge-dossie">Memória de Decisão</span>
+    {% endif %}
+    {% if plano_label %}
+      &nbsp;<span class="badge badge-pmx">{{ plano_label }}</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if materialidade %}
+<!-- Materialidade -->
+<div class="section">
+  <div class="section-title">Materialidade</div>
+  <div class="materialidade-row">
+    {% for i in range(1, 6) %}
+      <div class="mat-dot {% if i <= materialidade %}mat-filled{% else %}mat-empty{% endif %}"></div>
+    {% endfor %}
+    <span style="font-size:9pt;color:#555;margin-left:6px;">{{ materialidade }}/5</span>
+  </div>
+</div>
+{% endif %}
+
+{% if is_dossie and passos %}
+<!-- P1→P6 steps -->
+{% for passo in passos %}
+<div class="step-row">
+  <div class="step-num">P{{ passo.num }}</div>
+  <div class="step-content">
+    <div class="step-label">{{ passo.label }}</div>
+    <div class="step-body">{{ passo.texto }}</div>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<!-- Free-form content -->
+<div class="section">
+  {% if source_type == "analysis" %}
+    <div class="section-title">Análise</div>
+  {% else %}
+    <div class="section-title">Conteúdo</div>
+  {% endif %}
+  <p>{{ conteudo_principal }}</p>
+</div>
+{% endif %}
+
+{% if gov_grau or gov_forca or gov_risco %}
+<!-- Governance -->
+<div class="section">
+  <div class="section-title">Governança da Decisão</div>
+  <div class="gov-grid">
+    {% if gov_grau %}
+    <div class="gov-cell">
+      <div class="gov-cell-label">Grau de Consolidação</div>
+      <div class="gov-cell-value">{{ gov_grau }}</div>
+    </div>
+    {% endif %}
+    {% if gov_forca %}
+    <div class="gov-cell">
+      <div class="gov-cell-label">Corrente Contrária</div>
+      <div class="gov-cell-value">{{ gov_forca }}</div>
+    </div>
+    {% endif %}
+    {% if gov_risco %}
+    <div class="gov-cell">
+      <div class="gov-cell-label">Risco de Adoção</div>
+      <div class="gov-cell-value">{{ gov_risco }}</div>
+    </div>
+    {% endif %}
+    {% if gov_scoring %}
+    <div class="gov-cell">
+      <div class="gov-cell-label">Confiança</div>
+      <div class="gov-cell-value">{{ gov_scoring }}%</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+
+{% if stakeholder_views %}
+<!-- Stakeholder views -->
+<div class="section">
+  <div class="section-title">Visões por Área</div>
+  {% for sv in stakeholder_views %}
+  <div class="stakeholder-block">
+    <div class="stakeholder-name">{{ sv.stakeholder }}</div>
+    <div class="stakeholder-text">{{ sv.resumo }}</div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% if disclaimer %}
+<div class="disclaimer-box">{{ disclaimer }}</div>
+{% endif %}
+
+{% if integrity_hash %}
+<div class="hash-block">
+  <span class="hash-label">SHA-256:</span>{{ integrity_hash }}
+</div>
+{% endif %}
+
+</body>
+</html>

@@ -9,6 +9,7 @@ import { PainelGovernanca } from "@/components/shared/PainelGovernanca";
 import { AnalysisLoading } from "@/components/shared/AnalysisLoading";
 import { CTADocumentar } from "@/components/analisar/CTADocumentar";
 import { MarkdownText } from "@/components/shared/MarkdownText";
+import { ExportPDFButton } from "@/components/shared/ExportPDFButton";
 import api from "@/lib/api";
 import axios from "axios";
 import { useAuthStore } from "@/store/auth";
@@ -209,6 +210,9 @@ export default function AnalisarPage() {
             Tributária brasileira (EC 132/2023, LC 214/2025). Não substitui parecer jurídico
             ou consultoria especializada. Verifique a vigência das normas antes de tomar decisões.
           </p>
+
+          {/* Export PDF */}
+          <ExportPDFButton sourceType="analysis" analysisData={resultado as unknown as Record<string, unknown>} />
 
           {/* CTA de documentação — sempre ao final */}
           <CTADocumentar query={query} resultado={resultado} />

@@ -46,14 +46,14 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 import psycopg2
 from dotenv import load_dotenv
 
 from src.db.pool import get_conn, put_conn
-from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Query, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -1677,6 +1677,90 @@ def listar_outputs_caso(case_id: str, current_user: dict = Depends(verificar_ace
         logger.error("Erro em GET /v1/cases/%s/outputs: %s", case_id, e, exc_info=True)
         raise HTTPException(status_code=500, detail="Erro interno. Tente novamente.")
     return [_output_result_to_dict(r) for r in outputs]
+
+
+# ---------------------------------------------------------------------------
+# Export PDF
+# ---------------------------------------------------------------------------
+
+class ExportPDFRequest(BaseModel):
+    source_type: Literal["analysis", "dossie"]
+    source_id: Optional[str] = None      # output_id para dossiês
+    analysis_data: Optional[dict] = None  # payload de análise para source_type=analysis
+
+
+@app.post("/v1/export/pdf", dependencies=[Depends(verificar_acesso_tenant)])
+@limiter.limit("10/minute")
+async def export_pdf(
+    request: Request,
+    body: ExportPDFRequest,
+    current_user: dict = Depends(verificar_acesso_tenant),
+):
+    """Gera e retorna PDF para análise livre ou dossiê."""
+    from asyncio import get_event_loop
+    from functools import partial
+    from src.export.pdf_generator import generate_pdf, pdf_filename
+
+    logger.info("POST /v1/export/pdf source_type=%s", body.source_type)
+
+    if body.source_type == "dossie":
+        if not body.source_id:
+            raise HTTPException(status_code=422, detail="source_id obrigatório para source_type=dossie")
+        _verificar_acesso_output(body.source_id, current_user.get("sub"), current_user.get("perfil"))
+        try:
+            from src.outputs.engine import _load_output
+            conn = get_conn()
+            try:
+                result = _load_output(conn, body.source_id)
+            finally:
+                put_conn(conn)
+        except OutputError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        data = _output_result_to_dict(result)
+        classe = data.get("classe")
+    else:
+        if not body.analysis_data:
+            raise HTTPException(status_code=422, detail="analysis_data obrigatório para source_type=analysis")
+        data = body.analysis_data
+        classe = data.get("classe", "nota_trabalho")
+
+    # Recuperar info do tenant para cabeçalho
+    tenant_info: dict = {}
+    user_id = current_user.get("sub")
+    if user_id:
+        try:
+            conn = get_conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT t.nome, t.cnpj, u.perfil FROM users u "
+                        "LEFT JOIN tenants t ON t.id = u.tenant_id "
+                        "WHERE u.id = %s LIMIT 1",
+                        (user_id,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        tenant_info = {"nome": row[0] or "Orbis.tax", "cnpj": row[1], "plano": row[2]}
+            finally:
+                put_conn(conn)
+        except Exception:
+            pass
+
+    try:
+        loop = get_event_loop()
+        pdf_bytes = await loop.run_in_executor(
+            None, partial(generate_pdf, body.source_type, data, classe, tenant_info)
+        )
+    except Exception as e:
+        logger.error("Erro na geração de PDF: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Erro ao gerar PDF. Tente novamente.")
+
+    filename = pdf_filename(body.source_type, classe)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 # ---------------------------------------------------------------------------

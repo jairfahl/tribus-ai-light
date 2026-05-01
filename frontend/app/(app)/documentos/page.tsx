@@ -3,6 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { FolderOpen, Lock, X, ChevronRight, Search } from "lucide-react";
 import { MarkdownText } from "@/components/shared/MarkdownText";
 import { Card } from "@/components/shared/Card";
+import { ExportPDFButton } from "@/components/shared/ExportPDFButton";
 import { useAuthStore } from "@/store/auth";
 import api from "@/lib/api";
 
@@ -299,10 +300,25 @@ export default function DocumentosPage() {
                           Caso: {d.case_titulo}
                         </p>
                       </div>
-                      <ChevronRight
-                        size={15}
-                        className="text-muted-foreground/40 group-hover:text-muted-foreground mt-1 shrink-0 transition-colors"
-                      />
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span
+                          role="button"
+                          onClick={(e) => e.stopPropagation()}
+                          className="contents"
+                        >
+                          <ExportPDFButton
+                            sourceType="dossie"
+                            sourceId={d.id}
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground/50 hover:text-muted-foreground"
+                          />
+                        </span>
+                        <ChevronRight
+                          size={15}
+                          className="text-muted-foreground/40 group-hover:text-muted-foreground mt-1 transition-colors"
+                        />
+                      </div>
                     </div>
                   </Card>
                 </button>
