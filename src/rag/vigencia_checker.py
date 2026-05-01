@@ -153,8 +153,8 @@ def verificar_vigencia_norma(
             nome=norma["nome"],
             status="nao_vigente_ainda",
             mensagem=(
-                f"⚠ '{norma['nome']}' não estava vigente em {data_analise} "
-                f"(data do cenário consultado). Entrou em vigor em {vigente_desde}."
+                f"⚠ '{norma['nome']}' não estava vigente em {data_analise.strftime('%d/%m/%Y')} "
+                f"(data do cenário consultado). Entrou em vigor em {vigente_desde.strftime('%d/%m/%Y')}."
             ),
             alerta=True,
             vigente_desde=vigente_desde.isoformat(),
@@ -168,8 +168,8 @@ def verificar_vigencia_norma(
             nome=norma["nome"],
             status="revogada",
             mensagem=(
-                f"⚠ '{norma['nome']}' expirou em {vigente_ate} e não era aplicável "
-                f"em {data_analise} (data do cenário consultado)."
+                f"⚠ '{norma['nome']}' expirou em {vigente_ate.strftime('%d/%m/%Y')} e não era aplicável "
+                f"em {data_analise.strftime('%d/%m/%Y')} (data do cenário consultado)."
             ),
             alerta=True,
             vigente_ate=vigente_ate.isoformat(),
