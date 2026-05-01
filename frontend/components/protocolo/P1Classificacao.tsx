@@ -89,14 +89,14 @@ export function P1Classificacao() {
               <Info size={13} className="text-muted-foreground cursor-help" />
               <div className="absolute left-0 bottom-5 z-10 hidden group-hover:block w-72 rounded-lg border border-border bg-popover p-3 shadow-md text-xs text-foreground leading-relaxed">
                 <p className="font-semibold mb-1">Para que servem?</p>
-                <p className="mb-2">Orientam a lente interpretativa que a IA usará ao analisar sua consulta. Cada método produz conclusões diferentes sobre o mesmo dispositivo legal.</p>
+                <p className="mb-2">Orientam a lente interpretativa que o Orbis usará ao analisar sua consulta. Cada método produz conclusões diferentes sobre o mesmo dispositivo legal.</p>
                 <ul className="space-y-1 text-muted-foreground">
                   <li><span className="text-foreground font-medium">Literal</span> — interpreta o texto exato da norma, sem extrapolações.</li>
                   <li><span className="text-foreground font-medium">Sistemática</span> — cruza a norma com outras leis relacionadas (ex.: LC 214 + EC 132).</li>
                   <li><span className="text-foreground font-medium">Histórico-evolutiva</span> — analisa como o dispositivo evoluiu ao longo das reformas.</li>
                   <li><span className="text-foreground font-medium">Teleológica</span> — interpreta pela finalidade e intenção do legislador.</li>
                 </ul>
-                <p className="mt-2 text-muted-foreground">Se nenhum for selecionado, a IA escolhe automaticamente o mais adequado.</p>
+                <p className="mt-2 text-muted-foreground">Se nenhum for selecionado, o Orbis escolhe automaticamente o mais adequado.</p>
               </div>
             </div>
           </div>

@@ -87,7 +87,7 @@ export function P5Decisao() {
       <Card titulo="P5 — O que você vai fazer?">
         <div className="space-y-3">
           <p className="text-sm text-muted-foreground">
-            Registre a decisão tomada. O sistema calculará a similaridade com a análise da IA
+            Registre a decisão tomada. O Orbis calculará a similaridade com a análise
             e ativará o detector de terceirização cognitiva se necessário.
           </p>
           <Textarea
@@ -106,7 +106,16 @@ export function P5Decisao() {
               disabled={loading || !decisaoFinal.trim()}
               className="w-full bg-primary text-primary-foreground"
             >
-              {loading ? "Processando…" : "Registrar decisão"}
+              {loading ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-foreground animate-bounce [animation-delay:0ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-foreground animate-bounce [animation-delay:150ms]" />
+                    <span className="w-1.5 h-1.5 rounded-full bg-primary-foreground animate-bounce [animation-delay:300ms]" />
+                  </span>
+                  Processando…
+                </span>
+              ) : "Registrar decisão"}
             </Button>
           )}
         </div>

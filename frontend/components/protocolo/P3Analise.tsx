@@ -64,7 +64,7 @@ export function P3Analise() {
         {!resultadoIA ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              A IA irá buscar as normas mais relevantes para sua consulta na base de conhecimento
+              O Orbis irá buscar as normas mais relevantes para sua consulta na base de conhecimento
               e analisar com base nas {premissas.length} premissas e {riscos.length} riscos declarados em P2.
             </p>
             {erro && <p className="text-xs text-red-600">{erro}</p>}

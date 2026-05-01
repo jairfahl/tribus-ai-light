@@ -61,12 +61,12 @@ export function P4Hipotese() {
 
         {salvo && (
           <p className="text-xs text-emerald-600 mt-2 font-medium">
-            ✓ Hipótese registrada. Agora compare com a análise da IA abaixo.
+            ✓ Hipótese registrada. Agora compare com a análise do Orbis abaixo.
           </p>
         )}
       </Card>
 
-      {/* Lado a lado: hipótese vs IA */}
+      {/* Lado a lado: hipótese vs Orbis */}
       {salvo && resultadoIA && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card titulo="Sua hipótese (P4)" acento="muted">
@@ -74,7 +74,7 @@ export function P4Hipotese() {
               {hipoteseGestor}
             </p>
           </Card>
-          <Card titulo="Recomendação da IA (P3)" acento="primary">
+          <Card titulo="Recomendação do Orbis (P3)" acento="primary">
             <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground line-clamp-10">
               {resultadoIA.resposta}
             </p>
