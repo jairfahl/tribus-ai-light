@@ -3,7 +3,7 @@
 ## Convenções
 
 - **Formato:** `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)
-- **Última migration:** `127_churn_email_tracking.sql` → próxima: `128_...`
+- **Última migration:** `134_rls_api_usage.sql` → próxima: `135_...`
 - **Regra absoluta:** qualquer ALTER TABLE no banco DEVE ter arquivo migration correspondente
 
 ## Passos
@@ -13,7 +13,7 @@
 ls migrations/ | sort | tail -5
 
 # 2. Criar arquivo migration
-# migrations/128_descricao.sql
+# migrations/135_descricao.sql
 
 # 3. Verificar tabela existente antes de FK
 docker exec tribus-ai-db psql -U taxmind -d taxmind_db -c "\d <tabela>"
@@ -21,14 +21,14 @@ docker exec tribus-ai-db psql -U taxmind -d taxmind_db -c "\d <tabela>"
 # 4. Executar migration
 docker exec -i tribus-ai-db \
     psql -U taxmind -d taxmind_db \
-    < migrations/128_descricao.sql
+    < migrations/135_descricao.sql
 
 # 5. Verificar aplicação
 docker exec tribus-ai-db psql -U taxmind -d taxmind_db -c "\d <tabela_alterada>"
 
 # 6. Commitar o arquivo de migration
-git add migrations/128_descricao.sql
-git commit -m "feat: migration 128 — descricao"
+git add migrations/135_descricao.sql
+git commit -m "feat: migration 135 — descricao"
 ```
 
 ## Armadilhas Conhecidas

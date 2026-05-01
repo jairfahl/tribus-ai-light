@@ -1,7 +1,7 @@
 # Schema do Banco — 31 Tabelas
 
 **Banco:** PostgreSQL 16 + pgvector | **Container:** `tribus-ai-db`
-**Última migration:** `132_tenant_cpf_cnpj.sql` → próxima: `133_...`
+**Última migration:** `134_rls_api_usage.sql` → próxima: `135_...`
 
 ---
 
@@ -101,3 +101,15 @@
 - `cases.tenant_id` adicionado em m128 (NULL-able, FK tenants) — enforcement de limites por plano
 - `api_usage.tenant_id` adicionado em m129 (NULL-able UUID) — chamadas de ingestão/regression podem ser NULL; índices em (tenant_id) e (tenant_id, created_at)
 - `tenants.cpf_cnpj` adicionado em m132 (VARCHAR(18), NULL-able) — coletado no ato da assinatura; validado pelo Asaas (CPF 11 dígitos / CNPJ 14 dígitos)
+
+## Row-Level Security — Migrations 133 + 134
+
+| Tabela | Policy | Migration |
+|--------|--------|-----------|
+| `users` | `rls_users_tenant` | 133 |
+| `cases` | `rls_cases_tenant` | 133 |
+| `mau_records` | `rls_mau_records_tenant` | 133 |
+| `api_usage` | `rls_api_usage_tenant` | 134 |
+
+Helper: `app_tenant_id()` lê `current_setting('app.tenant_id', true)::UUID` (retorna NULL se não definido).
+Todas as policies são backward-compatible: `app_tenant_id() IS NULL` permite acesso irrestrito sem contexto de sessão.

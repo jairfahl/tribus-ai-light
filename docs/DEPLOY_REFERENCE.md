@@ -103,6 +103,32 @@ Uso: `ssh orbis` (sem digitar IP ou credenciais)
 
 ---
 
+## SSH — Hardening (30/04/2026)
+
+Configurações aplicadas em `/etc/ssh/sshd_config` na VPS:
+
+```
+PermitRootLogin prohibit-password   # root só via chave — sem senha
+PasswordAuthentication no           # desabilita senha para todos os usuários
+```
+
+**Acesso:** exclusivamente via chave `~/.ssh/orbis_vps`. Senha root desabilitada.
+**Validado com:** `sshd -t` antes do reload — zero erros de config.
+
+---
+
+## Checklist P2 — Resultado da Auditoria (30/04/2026)
+
+| Item | Status | Detalhe |
+|------|--------|---------|
+| F01 BYPASS_AUTH | ✅ Seguro | Não presente em `.env.prod` — `False` hardcoded no código |
+| F05 Porta PG exposta | ✅ Seguro | PostgreSQL não acessível externamente em prod (`docker-compose.prod.yml`) |
+| F06 Env vars críticas | ✅ Completo | 10 variáveis críticas presentes e corretas |
+| F08 Cron backup | ✅ Ativo | `pg_dump` diário às 03:00 UTC, retenção 7 dias |
+| F04 SSH hardening | ✅ Aplicado | `PermitRootLogin prohibit-password` + `PasswordAuthentication no` |
+
+---
+
 ## Domínios Registrados
 
 - orbis.tax (principal)

@@ -7,7 +7,7 @@
 | Contexto carregado por sessão | ~51KB (CLAUDE.md + ARCHITECTURE.md) | ~8–13KB (AGENTS.md + 1–2 docs/) |
 | Invariantes com linter | 0 | 5+ (embedding, P4, citation, PTF, ruff) |
 | Cobertura de "regras derivadas" | 0% | >= 50% das lições em LESSONS_LEARNED |
-| CI pipeline | Inexistente | pre_deploy_check.sh (5→7 checks) |
+| CI pipeline | Inexistente | pre_deploy_check.sh (5→7 checks) + GitHub Actions (security.yml + tests.yml) |
 | CLAUDE.md linhas | 369 | < 200 |
 | ARCHITECTURE.md linhas | 409 | Inalterado (referência viva) |
 
@@ -18,7 +18,7 @@
 | Dimensão | Status |
 |----------|--------|
 | AGENTS.md criado | ✅ 82 linhas |
-| docs/ criado (9 arquivos) | ✅ DOMAIN_FISCAL, RAG_ARCHITECTURE, CITATION_CONTRACT, PROTOCOL_P1_P6, QUALITY_SCORECARD, DATA_BOUNDARY, SCHEMA_REFERENCE, DEPLOY_REFERENCE, FEEDBACK_LOOP |
+| docs/ criado (10 arquivos) | ✅ DOMAIN_FISCAL, RAG_ARCHITECTURE, CITATION_CONTRACT, PROTOCOL_P1_P6, QUALITY_SCORECARD, DATA_BOUNDARY, SCHEMA_REFERENCE, DEPLOY_REFERENCE, FEEDBACK_LOOP, HARNESS_METRICS |
 | CLAUDE.md reduzido | ✅ < 200 linhas |
 | skills/ criado (6 arquivos) | ✅ new-feature, new-migration, pre-deploy, diagnose-bug, rag-pipeline, protocol-step |
 | pyproject.toml (ruff config) | ✅ |
@@ -45,16 +45,11 @@ Após corrigir violações existentes em `src/`:
 | `useSearchParams` sem `<Suspense>` | `test_suspense_boundary.py` | Previne falha de build Next.js |
 | `docker-compose.prod.yml` em tests/ | `test_no_prod_refs_in_tests.py` | Segurança |
 
-### 4.3 GitHub Actions CI (fecha D-08 de LESSONS_LEARNED)
+### 4.3 GitHub Actions CI ✅ IMPLEMENTADO (Sprint Segurança — 30/04/2026)
 
-**Depende de decisão do PO.** Trigger: "Ao iniciar Onda 2".
-
-Arquivo: `.github/workflows/ci.yml`
-
-Steps propostos:
-1. ruff check src/
-2. pytest tests/unit/ tests/integration/ tests/linters/
-3. npm run build (frontend)
+Arquivos criados:
+- `.github/workflows/security.yml` — Bandit (SAST) + pip-audit; trigger: push/PR para main
+- `.github/workflows/tests.yml` — pytest unit/integration/linters; trigger: push/PR para main
 
 ---
 

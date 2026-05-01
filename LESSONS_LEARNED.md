@@ -1,9 +1,9 @@
 # LESSONS_LEARNED.md
 # Orbis.tax — Lições Aprendidas
-**Versão:** 1.3
+**Versão:** 1.4
 **Atualizado em:** Abril 2026
 **Autor:** PO (Jair Fahl) + Claude
-**Localização:** `/Users/jairfahl/Downloads/tribus-ai-light/LESSONS_LEARNED.md`
+**Localização:** `/Users/jairfahl/Downloads/orbis.tax/LESSONS_LEARNED.md`
 
 > **Como usar este arquivo:**
 > Consultar antes de decisões arquiteturais, antes de deploys em produção,
@@ -438,7 +438,7 @@ Atualizar esta tabela quando um item for fechado.
 | D-05 | Tab Consultar com resposta mais rasa que Protocolo | Qualidade inconsistente | Aplicar PROMPT_DIAGNOSTICO antes do lançamento |
 | ~~D-06~~ | ~~Billing Asaas produção não contratado~~ | ~~Monetização bloqueada~~ | ✅ **Fechado Abril 2026** — Asaas integrado, webhook configurado, pricing promocional ativo |
 | D-07 | Staging environment inexistente | Deploys sem validação prévia | Ao iniciar Onda 2 |
-| D-08 | Pipeline CI/CD ausente | Deploys manuais com risco de erro humano | Ao iniciar Onda 2 |
+| ~~D-08~~ | ~~Pipeline CI/CD ausente~~ | ~~Deploys manuais com risco de erro humano~~ | ✅ **Fechado Abril 2026** — `.github/workflows/security.yml` (Bandit + pip-audit) + `.github/workflows/tests.yml` (pytest); trigger: push/PR para main |
 
 ---
 
@@ -502,6 +502,25 @@ O corpus desatualizado, sim.
 **O que aconteceu:** Query em `check_inactive_tenants()` usou `WHERE ai.tenant_id = t.id`, mas a tabela `ai_interactions` só tem `user_id`. O erro só seria descoberto em produção quando o scheduler rodasse.
 **Custo:** Bug silencioso — função retornaria erro na primeira execução do job diário.
 **Regra derivada:** Antes de escrever qualquer query que acessa uma tabela pela primeira vez na sessão, rodar `\d <tabela>` no container para confirmar as colunas disponíveis. Nunca assumir que a coluna existe porque "faz sentido semântico". O join correto: `JOIN users u ON u.id = ai.user_id WHERE u.tenant_id = t.id`.
+
+---
+
+## 14. LIÇÕES DE ABRIL 2026 (Sprint Segurança — Auditoria QA)
+
+### [Abril 2026] — Auditoria QA: triagem é mais valiosa que remediar tudo cegamente
+**O que aconteceu:** Relatório com 19 findings (4 críticos, 6 altos, etc.). Exploração real do codebase revelou que 12 dos 19 já estavam resolvidos. Teria sido desperdício remediar tudo sem triagem.
+**Custo:** Zero — a triagem aconteceu antes da ação.
+**Regra derivada:** Antes de agir em qualquer relatório de segurança, verificar o estado real de cada finding no codebase. Findings de auditoria automatizada são ponto de partida, não verdade absoluta.
+
+### [Abril 2026] — RLS sem FORCE ROW LEVEL SECURITY é backward-compatible
+**O que aconteceu:** A opção de FORCE RLS (que bloqueia até o dono da tabela) foi considerada mas descartada. O user `taxmind` é dono das tabelas e bypassa RLS por padrão — o que é o comportamento correto enquanto a aplicação não injeta `app.tenant_id` via middleware.
+**Custo:** Zero — a abordagem em fases (FASE 1 backward-compatible; FASE 2 com role dedicada) é mais segura que forçar tudo de uma vez.
+**Regra derivada:** Ao implementar RLS em sistema legado, usar `app_tenant_id() IS NULL` como cláusula de escape no USING — permite rollout incremental sem risco de bloquear queries existentes.
+
+### [Abril 2026] — Migration 129 deveria ter sido aplicada com migration 133
+**O que aconteceu:** Migration 133 (RLS) tentou criar policy em `api_usage.tenant_id` mas a coluna não existia porque migration 129 não tinha sido aplicada em prod. Exigiu aplicação manual sequencial: primeiro 129, depois RLS em api_usage.
+**Custo:** Ciclo extra de apply + criação de migration 134 para registro de consistência.
+**Regra derivada:** Ao criar migration que depende de coluna criada em migration anterior, verificar se a migration-pai foi aplicada em prod com `\d <tabela>` antes de executar. Preferir criar migration única que inclui as dependências ou verificar sequência explicitamente.
 
 ### [Abril 2026] — apscheduler não vem pré-instalado — verificar venv após requirements.txt
 **O que aconteceu:** `apscheduler>=3.10.0` foi adicionado ao `requirements.txt`, mas a instalação no venv local não foi executada. Importação falharia em runtime sem mensagem clara para o usuário.

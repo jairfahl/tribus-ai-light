@@ -1,5 +1,5 @@
 # Orbis.tax — Architecture Reference
-**Versão:** 2.8
+**Versão:** 2.9
 **Atualizado em:** Abril 2026
 **Mantido por:** PO (Jair)
 
@@ -108,6 +108,9 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   ├── tasks/
 │   │   ├── __init__.py
 │   │   └── scheduler.py          ← APScheduler jobs diários: check_trial_expiring (09h UTC) + check_inactive_tenants (09h30 UTC)
+│   ├── security/
+│   │   ├── __init__.py
+│   │   └── prompt_sanitizer.py   ← Defesa contra prompt injection (OWASP LLM01): regex blacklist + NFKC normalization + limite 8k chars
 │   ├── integrity/
 │   │   └── lockfile_manager.py
 │   ├── email_service.py          ← Envio de e-mails via Resend API (verificação de conta + recuperação de senha)
@@ -120,9 +123,13 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 │   │   └── sources.py            ← Scrapers por tipo (6 checkers)
 │   ├── ingest/                   ← Pipeline de ingestão assíncrona + dedup por file_hash
 │   └── db/
-│       └── pool.py               ← ThreadedConnectionPool — get_conn/put_conn (USAR SEMPRE)
+│       └── pool.py               ← ThreadedConnectionPool — get_conn/put_conn + set_tenant_id() (USAR SEMPRE)
+├── .github/
+│   └── workflows/
+│       ├── security.yml          ← SAST: Bandit + pip-audit — trigger push/PR para main
+│       └── tests.yml             ← pytest unit/integration/linters — trigger push/PR para main
 ├── migrations/
-│   └── NNN_descricao.sql         ← Numeração sequencial obrigatória (última: 129_api_usage_tenant.sql)
+│   └── NNN_descricao.sql         ← Numeração sequencial obrigatória (última: 134_rls_api_usage.sql)
 ├── docs/                         ← ⭐ Contexto estruturado para agentes (Harness Engineering)
 │   ├── DOMAIN_FISCAL.md          ← Taxonomia EC132/LC214/LC227, PTF, terminologia IBS/CBS/IS
 │   ├── RAG_ARCHITECTURE.md       ← Pipeline completo, file paths, embedding lock, Loop Depth QG
@@ -238,7 +245,8 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 | `src/monitor/checker.py` | verificar_todas_fontes (concurrent, 30s timeout/fonte), listar_pendentes, atualizar_status | Zero rendering |
 | `src/monitor/sources.py` | Scrapers por tipo: dou, planalto, cgibs, nfe, rfb, sijut2 | Zero persistência |
 | `src/rag/remissao_resolver.py` | Resolve remissões entre normas e injeta no contexto (RAR) | Zero orquestração |
-| `src/db/pool.py` | Pool de conexões psycopg2 — get_conn/put_conn | Zero lógica de negócio |
+| `src/db/pool.py` | Pool de conexões psycopg2 — get_conn/put_conn + `set_tenant_id()` para RLS middleware | Zero lógica de negócio |
+| `src/security/prompt_sanitizer.py` | Defesa contra prompt injection: NFKC normalization + regex blacklist de 10 patterns + limite 8k chars; `PromptInjectionError` em caso de detecção | Zero lógica tributária |
 | `src/integrity/lockfile_manager.py` | Verificação de integridade de prompts (RDM-029) | Zero lógica tributária |
 
 ---
@@ -299,7 +307,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 ### Banco de Dados
 - **Toda nova feature que toca o banco começa por migration SQL versionada.**
   - Formato: `migrations/NNN_descricao.sql` (NNN = número sequencial de 3 dígitos)
-  - Migration mais recente: `132_tenant_cpf_cnpj.sql` → próxima será `133_...`
+  - Migration mais recente: `134_rls_api_usage.sql` → próxima será `135_...`
 - **Nunca alterar schema sem migration.** ALTER TABLE direto no banco sem arquivo = proibido.
 - **Antes de migration com FK, verificar se tabela-pai existe** com `\d <tabela>` no container.
 
@@ -322,7 +330,7 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 
 ### Gate de Qualidade
 - **RDMs da Onda 1.5 estão implementados** (HyDE, Multi-Query, Step-Back, Context Budget, Lockfile). Não reimplementar.
-- **762+ testes devem passar** após qualquer modificação (referência 2026-04-30).
+- **786+ testes devem passar** após qualquer modificação (referência 2026-04-30: 762 originais + 24 novos em test_prompt_sanitizer.py).
   - Comando: `.venv/bin/python -m pytest tests/unit/ tests/integration/ tests/linters/ -v --tb=short`
   - Zero novas regressões toleradas — qualquer falha nova deve ser corrigida antes de entregar
   - Linters AST: `tests/linters/` — 12 testes (embedding lock, P4 guard, citation contract, PTF)
@@ -443,6 +451,14 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | ASAAS_BASE_URL corrigido para produção | ✅ Abril 2026 | `.env.prod` na VPS: `https://api.asaas.com/v3` (era `sandbox.asaas.com` com chave `$aact_prod_...` → 401 → 500) |
 | Billing: cancel-and-recreate para trocar método de pagamento | ✅ Implementado Abril 2026 | Se `asaas_subscription_id` existe mas `subscription_status != active`, cancela pending no Asaas e recria — permite troca PIX↔Cartão antes de pagar |
 | tests/unit/test_acesso_tenant.py | ✅ Implementado Abril 2026 | 19 testes cobrindo `tenant_tem_acesso`, `dias_restantes_trial` e `verificar_acesso_tenant` |
+| SEC-F03 Credenciais hardcoded removidas | ✅ Abril 2026 | docker-compose.yml usa `${DOCKER_DATABASE_URL}`; testes de integração centralizam DB_URL via `os.environ.get` com fallback `localhost:5436` |
+| SEC-F14 Swagger desabilitado em prod | ✅ Abril 2026 | `src/api/main.py`: `docs_url/redoc_url/openapi_url = None` quando `ENV != dev` |
+| SEC-F07 Prompt injection defense (OWASP LLM01) | ✅ Abril 2026 | `src/security/prompt_sanitizer.py`: NFKC + 10 regex patterns; integrado em `engine.py` antes da chamada LLM; 24 testes em `tests/test_prompt_sanitizer.py` |
+| SEC-F09 CI/CD — GitHub Actions | ✅ Abril 2026 | `.github/workflows/security.yml` (Bandit + pip-audit) + `.github/workflows/tests.yml` (pytest); trigger: push/PR para main |
+| SEC-F11 CSP Enforce ativo | ✅ Abril 2026 | `nginx/nginx.conf`: `Content-Security-Policy` (era `Content-Security-Policy-Report-Only`) |
+| SEC-F02 RLS implementado — migrations 133+134 | ✅ Abril 2026 | `app_tenant_id()` helper + policies em `users`, `cases`, `mau_records` (m133) e `api_usage` (m134); backward-compatible: `app_tenant_id() IS NULL` permite queries sem contexto de tenant |
+| SEC-F04 SSH hardening no VPS | ✅ Abril 2026 | `PermitRootLogin prohibit-password` + `PasswordAuthentication no` em `/etc/ssh/sshd_config`; acesso somente via chave `~/.ssh/orbis_vps` |
+| set_tenant_id() em pool.py | ✅ Abril 2026 | Helper para injetar `SET LOCAL app.tenant_id` na conexão — base para enforcement RLS em middleware futuro (FASE 2) |
 
 ---
 

@@ -18,6 +18,25 @@ tenant_id = _get_tenant_info_by_user(user_id, conn)["tenant_id"]
 
 ---
 
+## Row-Level Security (RLS) — Migrations 133 + 134
+
+RLS habilitado nas tabelas principais a partir de **30/04/2026** (Sprint Segurança):
+
+| Tabela | Migration | Policy |
+|--------|-----------|--------|
+| `users` | 133 | `rls_users_tenant` — `app_tenant_id() IS NULL OR tenant_id = app_tenant_id() OR tenant_id IS NULL` |
+| `cases` | 133 | `rls_cases_tenant` — idem |
+| `mau_records` | 133 | `rls_mau_records_tenant` — `app_tenant_id() IS NULL OR tenant_id = app_tenant_id()` |
+| `api_usage` | 134 | `rls_api_usage_tenant` — idem `users` |
+
+**Helper:** `app_tenant_id()` — função PostgreSQL que lê `current_setting('app.tenant_id', true)::UUID`.
+
+**Backward-compatible:** quando `app.tenant_id` não está definido na sessão (admin/serviço), a cláusula `app_tenant_id() IS NULL` garante acesso total — sem quebrar queries existentes.
+
+**FASE 2 (futuro):** criar role `app_user` sem privilégios de dono de tabela + `FORCE ROW LEVEL SECURITY` + injetar `app.tenant_id` via middleware FastAPI (usar `set_tenant_id()` em `src/db/pool.py`).
+
+---
+
 ## LGPD
 
 | Requisito | Implementação |

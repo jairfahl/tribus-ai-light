@@ -1,6 +1,6 @@
 # Orbis.tax — AGENTS.md
 **Produto:** RAG de inteligência tributária (Reforma Tributária brasileira)
-**Raiz:** `/Users/jairfahl/Downloads/tribus-ai-light/`
+**Raiz:** `/Users/jairfahl/Downloads/orbis.tax/`
 **API:** `src/api/main.py` (FastAPI, porta 8020)
 **UI:** `frontend/` (Next.js 16 App Router, porta 3000 dev / 8521 Docker)
 
@@ -54,9 +54,9 @@ PTF → Adaptive Params → SPD routing → Retrieve → CRAG →
 ## Antes de Qualquer Tarefa
 
 ```bash
-cat /Users/jairfahl/Downloads/tribus-ai-light/ARCHITECTURE.md
+cat /Users/jairfahl/Downloads/orbis.tax/ARCHITECTURE.md
 .venv/bin/python -m pytest tests/ --tb=no -q 2>/dev/null | tail -3
-ls /Users/jairfahl/Downloads/tribus-ai-light/TASKS_*.md
+ls /Users/jairfahl/Downloads/orbis.tax/TASKS_*.md
 ```
 
 ---

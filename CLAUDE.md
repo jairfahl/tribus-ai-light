@@ -106,10 +106,18 @@ Pipeline: `PTF → Adaptive → SPD → Retrieve → CRAG → [MQ|SB|HyDE] → Q
 | **SubscriptionBlocker frontend — TrialExpiradoScreen + bypass /assinar e /conta** | ✅ Abril 2026 |
 | **CPF/CNPJ na assinatura — migration 132 + campo /assinar + validação Asaas** | ✅ Abril 2026 |
 | **ASAAS_BASE_URL corrigido para produção (era sandbox com chave prod)** | ✅ Abril 2026 |
+| **Auditoria QA — Sprint Segurança (7 findings remediados)** | ✅ Abril 2026 |
+| **SEC-F03 Credenciais hardcoded removidas — docker-compose.yml usa ${DOCKER_DATABASE_URL}** | ✅ Abril 2026 |
+| **SEC-F14 Swagger desabilitado em prod — docs_url=None quando ENV!=dev** | ✅ Abril 2026 |
+| **SEC-F07 Prompt injection defense — src/security/prompt_sanitizer.py (OWASP LLM01)** | ✅ Abril 2026 |
+| **SEC-F09 CI/CD GitHub Actions — security.yml (Bandit+pip-audit) + tests.yml (pytest)** | ✅ Abril 2026 |
+| **SEC-F11 CSP Enforce ativo — nginx.conf (era Report-Only)** | ✅ Abril 2026 |
+| **SEC-F02 RLS implementado — migrations 133+134 (users, cases, mau_records, api_usage)** | ✅ Abril 2026 |
+| **SEC-F04 SSH hardening no VPS — PermitRootLogin prohibit-password + PasswordAuthentication no** | ✅ Abril 2026 |
 
-- **Suite de testes:** 762 passando, ~10 falhas conhecidas pré-existentes (referência 2026-04-30)
+- **Suite de testes:** 786 passando (762 originais + 24 novos test_prompt_sanitizer), ~10 falhas conhecidas pré-existentes (referência 2026-04-30)
 - **Linters AST:** `tests/linters/` — 12 testes: embedding lock, P4 guard, citation contract, PTF
-- **Última migration:** `132_tenant_cpf_cnpj.sql` → próxima: `133_...`
+- **Última migration:** `134_rls_api_usage.sql` → próxima: `135_...`
 
 ---
 
@@ -139,7 +147,7 @@ bash scripts/quality_scorecard.sh
 → ver `skills/new-migration.md` para processo completo
 
 ```bash
-ls migrations/ | sort | tail -5   # Última: 132 → próxima: 133
+ls migrations/ | sort | tail -5   # Última: 134 → próxima: 135
 docker exec -i tribus-ai-db psql -U taxmind -d taxmind_db < migrations/NNN_descricao.sql
 ```
 
