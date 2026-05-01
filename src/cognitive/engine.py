@@ -671,6 +671,13 @@ def _chamar_llm(
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
+        if e.msg == "Extra data":
+            # LLM retornou JSON válido seguido de texto extra — usar apenas a parte JSON
+            try:
+                obj, _ = json.JSONDecoder().raw_decode(raw)
+                return obj
+            except json.JSONDecodeError:
+                pass
         logger.error(
             "JSON malformado: model=%s, stop_reason=%s, output_tokens=%d, raw=%s... erro=%s",
             model, resp.stop_reason, resp.usage.output_tokens, raw[:200], e,
