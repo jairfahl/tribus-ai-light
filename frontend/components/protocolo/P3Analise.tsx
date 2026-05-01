@@ -64,8 +64,8 @@ export function P3Analise() {
         {!resultadoIA ? (
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              A IA irá analisar sua consulta com base na LC 214/2025, EC 132/2023 e LC 227/2026,
-              utilizando as {premissas.length} premissas e {riscos.length} riscos declarados em P2.
+              A IA irá buscar as normas mais relevantes para sua consulta na base de conhecimento
+              e analisar com base nas {premissas.length} premissas e {riscos.length} riscos declarados em P2.
             </p>
             {erro && <p className="text-xs text-red-600">{erro}</p>}
             {loading && <AnalysisLoading />}

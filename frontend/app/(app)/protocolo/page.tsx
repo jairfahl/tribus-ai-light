@@ -32,8 +32,10 @@ export default function ProtocoloPage() {
   const StepComponent = STEPS[stepAtual - 1];
   const [limite, setLimite] = useState<LimiteInfo | null>(null);
 
+  const { isAdmin } = useAuthStore();
+
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || isAdmin()) return;
     api.get<LimiteInfo>(`/v1/cases/limite?user_id=${user.id}`)
       .then((r) => setLimite(r.data))
       .catch(() => {/* silencioso — badge é informativo */});

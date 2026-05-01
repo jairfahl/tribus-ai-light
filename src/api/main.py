@@ -202,7 +202,7 @@ class AnalyzeRequest(BaseModel):
     top_k: int = Field(5, ge=1, le=10)
     model: str = Field(MODEL_DEV)
     decompose: bool = Field(False, description="Ativar decomposição de sub-perguntas para queries complexas")
-    case_id: Optional[int] = Field(None, description="ID do caso (steps 1→6) para injetar contexto dos passos anteriores")
+    case_id: Optional[str] = Field(None, description="UUID do caso (steps 1→6) para injetar contexto dos passos anteriores")
     user_id: Optional[str] = Field(None, description="UUID do usuário autenticado (tenant isolation)")
     metodos_selecionados: list[str] = Field([], description="IDs dos métodos de análise selecionados no P1 (máx. 4)")
     criticidade: str = Field("media", description="Nível de criticidade do caso: baixa | media | alta | extrema")
@@ -266,7 +266,7 @@ def _analise_to_dict(resultado: AnaliseResult) -> dict:
 
 # --- Endpoints ---
 
-def _carregar_contexto_caso(case_id: int) -> Optional[dict]:
+def _carregar_contexto_caso(case_id: str) -> Optional[dict]:
     """Carrega dados dos passos anteriores do caso para injeção no LLM."""
     try:
         conn = get_conn()
@@ -288,14 +288,14 @@ def _carregar_contexto_caso(case_id: int) -> Optional[dict]:
             if isinstance(dados_raw, str):
                 dados_raw = _json.loads(dados_raw)
             contexto[passo] = dados_raw
-        logger.info("Contexto do caso %d carregado: passos %s", case_id, list(contexto.keys()))
+        logger.info("Contexto do caso %s carregado: passos %s", case_id, list(contexto.keys()))
         return contexto
     except Exception as e:
-        logger.warning("Falha ao carregar contexto do caso %d: %s", case_id, e)
+        logger.warning("Falha ao carregar contexto do caso %s: %s", case_id, e)
         return None
 
 
-def _buscar_casos_similares(query: str, case_id_atual: Optional[int] = None, top_k: int = 3) -> list[dict]:
+def _buscar_casos_similares(query: str, case_id_atual: Optional[str] = None, top_k: int = 3) -> list[dict]:
     """Busca casos concluídos similares para retroalimentação do LLM.
 
     Critérios de qualidade:
