@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useProtocoloStore } from "@/store/protocolo";
 import { Card } from "@/components/shared/Card";
+import { MarkdownText } from "@/components/shared/MarkdownText";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import api from "@/lib/api";
@@ -75,9 +76,7 @@ export function P4Hipotese() {
             </p>
           </Card>
           <Card titulo="Recomendação do Orbis (P3)" acento="primary">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground line-clamp-10">
-              {resultadoIA.resposta}
-            </p>
+            <MarkdownText text={resultadoIA.resposta} className="text-sm leading-relaxed text-foreground line-clamp-10" />
           </Card>
         </div>
       )}

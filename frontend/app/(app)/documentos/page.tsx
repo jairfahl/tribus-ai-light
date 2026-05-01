@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { FolderOpen, Lock, X, ChevronRight, Search } from "lucide-react";
+import { MarkdownText } from "@/components/shared/MarkdownText";
 import { Card } from "@/components/shared/Card";
 import { useAuthStore } from "@/store/auth";
 import api from "@/lib/api";
@@ -112,9 +113,7 @@ function DocumentoModal({ doc, onClose }: { doc: DocumentoView; onClose: () => v
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
                 Conteúdo
               </p>
-              <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-                {textoCompleto}
-              </p>
+              <MarkdownText text={textoCompleto} className="text-sm leading-relaxed text-foreground" />
             </div>
           ) : (
             <p className="text-sm text-muted-foreground italic">Conteúdo não disponível.</p>
@@ -130,7 +129,7 @@ function DocumentoModal({ doc, onClose }: { doc: DocumentoView; onClose: () => v
                 {doc.stakeholder_views.map((sv, i) => (
                   <div key={i} className="bg-muted/50 rounded-md p-3">
                     <p className="text-xs font-semibold text-muted-foreground mb-1">{sv.stakeholder}</p>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">{sv.resumo}</p>
+                    <MarkdownText text={sv.resumo} className="text-sm leading-relaxed text-foreground" />
                   </div>
                 ))}
               </div>

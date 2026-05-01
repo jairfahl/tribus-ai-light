@@ -7,6 +7,7 @@ import { BadgeCriticidade } from "@/components/shared/BadgeCriticidade";
 import { PainelGovernanca } from "@/components/shared/PainelGovernanca";
 import { AnalysisLoading } from "@/components/shared/AnalysisLoading";
 import api from "@/lib/api";
+import { MarkdownText } from "@/components/shared/MarkdownText";
 import { useAuthStore } from "@/store/auth";
 import type { ResultadoAnalise, Criticidade } from "@/types";
 
@@ -87,9 +88,7 @@ export function P3Analise() {
               </div>
             ))}
 
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-              {resultadoIA.resposta}
-            </p>
+            <MarkdownText text={resultadoIA.resposta} className="text-sm leading-relaxed text-foreground" />
 
             {resultadoIA.grau_consolidacao && (
               <PainelGovernanca

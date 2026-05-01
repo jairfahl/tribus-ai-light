@@ -7,6 +7,7 @@ import { Card } from "@/components/shared/Card";
 import { BadgeCriticidade } from "@/components/shared/BadgeCriticidade";
 import { PainelGovernanca } from "@/components/shared/PainelGovernanca";
 import { AnalysisLoading } from "@/components/shared/AnalysisLoading";
+import { MarkdownText } from "@/components/shared/MarkdownText";
 import api from "@/lib/api";
 import axios from "axios";
 import { useAuthStore } from "@/store/auth";
@@ -145,9 +146,7 @@ export default function ConsultarPage() {
 
           {/* Resposta principal */}
           <Card titulo="Análise" acento="primary">
-            <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-              {resultado.resposta}
-            </p>
+            <MarkdownText text={resultado.resposta} className="text-sm leading-relaxed text-foreground" />
             <PainelGovernanca
               grau={resultado.grau_consolidacao}
               forcaContraTese={resultado.forca_corrente_contraria}
@@ -165,9 +164,7 @@ export default function ConsultarPage() {
                     <p className="text-xs font-semibold text-muted-foreground mb-1">
                       {s.emoji} {s.label}
                     </p>
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground">
-                      {s.resumo}
-                    </p>
+                    <MarkdownText text={s.resumo} className="text-sm leading-relaxed text-foreground" />
                   </div>
                 ))}
               </div>
