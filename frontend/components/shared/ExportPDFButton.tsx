@@ -10,6 +10,8 @@ interface ExportPDFButtonProps {
   sourceId?: string;
   analysisData?: Record<string, unknown>;
   className?: string;
+  variant?: "default" | "outline" | "ghost";
+  size?: "default" | "sm" | "lg" | "icon";
 }
 
 export function ExportPDFButton({
@@ -17,6 +19,8 @@ export function ExportPDFButton({
   sourceId,
   analysisData,
   className,
+  variant = "outline",
+  size = "default",
 }: ExportPDFButtonProps) {
   const [loading, setLoading] = useState(false);
   const [sucesso, setSucesso] = useState(false);
@@ -56,11 +60,11 @@ export function ExportPDFButton({
   return (
     <div className="inline-flex flex-col items-start gap-1">
       <Button
-        variant="outline"
-        size="default"
+        variant={variant}
+        size={size}
         onClick={handleExport}
         disabled={loading}
-        className={`border-primary text-primary hover:bg-primary/10 hover:text-primary font-medium gap-2 ${className ?? ""}`}
+        className={variant === "ghost" ? className : `border-primary text-primary hover:bg-primary/10 hover:text-primary font-medium gap-2 ${className ?? ""}`}
         title="Baixar como PDF"
       >
         {loading ? (
