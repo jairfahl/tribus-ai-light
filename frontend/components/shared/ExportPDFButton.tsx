@@ -19,7 +19,7 @@ export function ExportPDFButton({
   sourceId,
   analysisData,
   className,
-  variant = "outline",
+  variant = "default",
   size = "sm",
 }: ExportPDFButtonProps) {
   const [loading, setLoading] = useState(false);
@@ -64,7 +64,7 @@ export function ExportPDFButton({
         size={size}
         onClick={handleExport}
         disabled={loading}
-        className={className}
+        className={`bg-primary text-primary-foreground hover:bg-primary/90 font-medium shadow-sm ${className ?? ""}`}
         title="Exportar como PDF"
       >
         {loading ? (
