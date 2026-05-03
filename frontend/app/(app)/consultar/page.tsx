@@ -62,7 +62,7 @@ export default function ConsultarPage() {
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) analisar();
           }}
-          placeholder="Descreva sua consulta tributária… (Cmd+Enter para analisar)"
+          placeholder={`Descreva sua consulta tributária… (${typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "Cmd" : "Ctrl"}+Enter para analisar)`}
           className="min-h-32 bg-input border-border resize-none text-sm"
         />
         {/* Slider top_k */}

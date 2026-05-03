@@ -125,9 +125,12 @@ export default function AnalisarPage() {
 
         <div className="flex justify-between items-center mt-3">
           <p className="text-xs text-muted-foreground">
-            {query.length > 0
-              ? `${query.length} caracteres · Cmd+Enter para analisar`
-              : "Cmd+Enter para analisar"}
+            {(() => {
+              const mod = typeof navigator !== "undefined" && navigator.platform.toUpperCase().includes("MAC") ? "Cmd" : "Ctrl";
+              return query.length > 0
+                ? `${query.length} caracteres · ${mod}+Enter para analisar`
+                : `${mod}+Enter para analisar`;
+            })()}
           </p>
           <Button
             onClick={analisar}

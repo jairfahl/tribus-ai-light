@@ -194,7 +194,7 @@ export function FluxoDocumentacao({ query, resultado, onConcluido, onCancelar }:
             <p>📝 Contexto e preocupações declarados</p>
             <p>💡 Seu palpite antes da IA</p>
             <p>✅ Sua decisão</p>
-            <p>🔒 Legal Hold ativo — imutável e defensável perante o Fisco</p>
+            <p>🔒 Bloqueio Regulatório ativo — imutável e defensável perante o Fisco</p>
           </div>
 
           {erroApi && (

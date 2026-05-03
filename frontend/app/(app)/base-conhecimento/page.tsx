@@ -225,7 +225,7 @@ export default function BaseConhecimentoPage() {
       <div>
         <h1 className="text-2xl font-semibold">Adicionar Norma</h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Adicione INs, Resoluções, Pareceres ou Manuais à base de conhecimento.
+          Adicione INs, Resoluções, Portarias, Pareceres, Manuais, Decretos ou Leis à base de conhecimento.
         </p>
       </div>
 

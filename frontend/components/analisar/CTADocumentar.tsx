@@ -22,7 +22,7 @@ export function CTADocumentar({ query, resultado }: Props) {
           ✅ Análise registrada e protegida.
         </p>
         <p className="text-xs text-emerald-600 mt-1">
-          🔒 Legal Hold ativo · Imutável · Defensável perante o Fisco
+          🔒 Bloqueio Regulatório ativo · Imutável · Defensável perante o Fisco
         </p>
         <Link
           href="/documentos"

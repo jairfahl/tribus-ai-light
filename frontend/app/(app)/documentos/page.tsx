@@ -11,7 +11,7 @@ const CLASSES: Record<string, { emoji: string; label: string }> = {
   alerta:                  { emoji: "🔔", label: "Alerta" },
   nota_trabalho:           { emoji: "📝", label: "Nota de Trabalho" },
   recomendacao_formal:     { emoji: "📋", label: "Recomendação Formal" },
-  dossie_decisao:          { emoji: "📁", label: "Dossiê de Decisão" },
+  dossie_decisao:          { emoji: "📁", label: "Mapa de Decisão" },
   material_compartilhavel: { emoji: "📤", label: "Material Compartilhável" },
 };
 
@@ -87,7 +87,7 @@ function DocumentoModal({ doc, onClose }: { doc: DocumentoView; onClose: () => v
               <span className="text-xs text-muted-foreground">· {data}</span>
               {legalHold && (
                 <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                  <Lock size={9} />Legal Hold
+                  <Lock size={9} />Bloqueio Regulatório
                 </span>
               )}
               {doc.classe === "dossie_decisao" && (
@@ -223,7 +223,7 @@ export default function DocumentosPage() {
         <div>
           <h1 className="text-2xl font-semibold">Documentos</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Histórico de análises. Dossiês de Decisão são imutáveis com Legal Hold ativo.
+            Histórico de análises. Mapas de Decisão são imutáveis com Bloqueio Regulatório ativo.
           </p>
         </div>
 
@@ -274,7 +274,7 @@ export default function DocumentosPage() {
                           <span className="text-xs text-muted-foreground">· {data}</span>
                           {legalHold && (
                             <span className="inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full">
-                              <Lock size={9} />Legal Hold
+                              <Lock size={9} />Bloqueio Regulatório
                             </span>
                           )}
                           {d.classe === "dossie_decisao" && (
