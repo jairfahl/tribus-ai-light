@@ -104,9 +104,11 @@ cp .env.example .env
 ### 2. Subir com Docker Compose
 
 ```bash
-docker compose up -d --build
-docker compose ps   # aguardar todos "Up" e DB "healthy"
+docker compose -f docker-compose.dev.yml up -d --build
+docker compose -f docker-compose.dev.yml ps   # aguardar todos "Up" e DB "healthy"
 ```
+
+> **Atenção:** `docker-compose.yml` é um guard file — `docker compose up` sem `-f` falha propositalmente. Sempre usar `-f docker-compose.dev.yml` para desenvolvimento.
 
 Serviços:
 - **db** — PostgreSQL 16 + pgvector (porta 5436)
@@ -142,10 +144,10 @@ python src/ingest/run_ingest.py
 ### Comandos úteis
 
 ```bash
-docker compose down                        # parar todos os serviços
-docker compose up -d                       # subir novamente
-docker compose restart api                 # reiniciar apenas a API
-docker compose logs api --tail 50          # logs da API
+docker compose -f docker-compose.dev.yml down                        # parar todos os serviços
+docker compose -f docker-compose.dev.yml up -d                       # subir novamente
+docker compose -f docker-compose.dev.yml restart api                 # reiniciar apenas a API
+docker compose -f docker-compose.dev.yml logs api --tail 50          # logs da API
 ```
 
 ---
@@ -172,8 +174,14 @@ bash deploy.sh
 ### Redeploy
 
 ```bash
-cd /opt/tribus-ai-light && bash redeploy.sh
+# Verificar antes: commits locais enviados + sem mudanças não commitadas
+git log origin/main..HEAD   # deve estar vazio
+bash scripts/pre_deploy_check.sh
+
+cd /root/tribus-ai-light && bash redeploy.sh
 ```
+
+> `redeploy.sh` executa pre-flight checks (env, vars, nginx ativo, sem container em 80/443) e post-deploy verification automática.
 
 ### Logs em produção
 
@@ -233,11 +241,14 @@ nginx ──► HTTPS ──► orbis.tax
 ```
 tribus-ai-light/
 ├── Dockerfile                     # Imagem backend FastAPI
-├── docker-compose.yml             # Dev: db + api + ui
-├── docker-compose.prod.yml        # Prod: db + api + ui + nginx
+├── docker-compose.yml             # GUARD FILE — falha propositalmente; nunca usar diretamente
+├── docker-compose.dev.yml         # Dev: db + api + ui
+├── docker-compose.prod.yml        # Prod: db + api + ui (sem nginx container)
 ├── deploy.sh                      # Deploy inicial (build + up)
-├── redeploy.sh                    # Redeploy (pull + build + up)
-├── nginx/nginx.conf               # Reverse proxy HTTPS
+├── redeploy.sh                    # Redeploy com pre-flight + post-deploy verification (único comando prod)
+├── nginx/
+│   ├── host-nginx-orbis.tax.conf  # Nginx do HOST — TLS + proxy (gerenciado pelo repo)
+│   └── nginx.conf                 # LEGADO (nginx container) — não usar
 ├── .env.prod.example              # Template de variáveis de produção
 ├── auth.py                        # Autenticação JWT + bcrypt
 ├── frontend/                      # ⭐ UI ATIVA — Next.js 16 App Router

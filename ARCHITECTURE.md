@@ -1,5 +1,5 @@
 # Orbis.tax — Architecture Reference
-**Versão:** 3.0
+**Versão:** 3.1
 **Atualizado em:** Maio 2026
 **Mantido por:** PO (Jair)
 
@@ -27,9 +27,14 @@ brasileira (EC 132/2023, LC 214/2025, LC 227/2026).
 ├── admin.py                  ← Painel admin Streamlit (LEGADO — não modificar)
 ├── ARCHITECTURE.md           ← Este arquivo
 ├── CLAUDE.md                 ← Regras e contexto permanente para Claude Code
-├── docker-compose.yml        ← Serviços: db (5436), api (8020), ui (8521→3000)
+├── docker-compose.yml        ← GUARD FILE — imprime instruções e falha; nunca usar diretamente
+├── docker-compose.dev.yml    ← Dev: db (5436), api (8020), ui (8521→3000) — usar para desenvolvimento local
+├── docker-compose.prod.yml   ← Prod: db, api (127.0.0.1:8020), ui (127.0.0.1:8521) — sem nginx container
 ├── Dockerfile                ← Imagem do backend FastAPI
-├── redeploy.sh               ← Script de redeploy (pull + build + up)
+├── redeploy.sh               ← Script de redeploy com pre-flight + post-deploy verification (único comando válido em prod)
+├── nginx/
+│   ├── host-nginx-orbis.tax.conf ← Nginx do HOST gerenciado pelo repo — proxy localhost:8020/8521; TLS Let's Encrypt
+│   └── nginx.conf            ← LEGADO (nginx container — não usar em produção)
 ├── landing/
 │   └── index.html            ← Landing page pública (trust signals + WhatsApp CTA + badge nav)
 ├── ui/                       ← LEGADO Streamlit — não modificar, substituído por frontend/
@@ -322,9 +327,12 @@ Constantes em `engine.py`: `_QUALITY_MAX_ITER`, `_QUALITY_TOPK_SCALE`.
 - **Cores no frontend:** NUNCA usar `style={{ color: "#XXXXXX" }}` hardcoded para texto — usar classes Tailwind semânticas (`text-foreground`, `text-muted-foreground`) que respeitam o dark mode via CSS vars.
 
 ### Deploy
+- **Único comando válido de deploy em produção: `bash redeploy.sh`** (pre-flight + build + post-deploy verification).
+- **Dev local:** `docker compose -f docker-compose.dev.yml up -d`. Nunca usar `docker compose up` sem `-f` — é guard file e falha propositalmente.
 - **`docker compose restart` NÃO relê `.env.prod`.** Após alterar variável de ambiente:
   `docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate <serviço>`
 - **`git status` antes de qualquer push** — arquivos não commitados não chegam ao VPS.
+- **`git log origin/main..HEAD`** antes de `redeploy.sh` — se houver commits locais não enviados, fazer push primeiro.
 
 ### Specs
 - **Specs (.docx) nunca são editados diretamente.** Processo: unpack → editar XML → repack.
@@ -467,6 +475,14 @@ Se a implementação exigir tocar arquivo fora do escopo declarado: **parar e re
 | Tooltip métodos P1 — redesign dark | ✅ Maio 2026 | bg-slate-900 fixo (era bg-popover → branco); color-coded por método (azul/verde/âmbar/roxo); header + lista com dividers + footer info; P1Classificacao.tsx |
 | Atalho cross-platform Cmd/Ctrl+Enter | ✅ Maio 2026 | Detecta Mac via `navigator.platform` em /analisar e /consultar; exibe "Cmd+Enter" (Mac) ou "Ctrl+Enter" (outros) |
 | Subtítulo /base-conhecimento completo | ✅ Maio 2026 | Lista todos os 7 tipos do dropdown: INs, Resoluções, Portarias, Pareceres, Manuais, Decretos e Leis |
+| docker-compose.yml → guard file | ✅ Maio 2026 | `docker compose up` sem flags exibe instruções e falha imediatamente — impede deploy acidental com compose errado. Dev usa `docker-compose.dev.yml`; prod usa `bash redeploy.sh` exclusivamente |
+| docker-compose.dev.yml criado | ✅ Maio 2026 | Novo arquivo dev unifica DATABASE_URL (sem DOCKER_DATABASE_URL); conteúdo = docker-compose.yml anterior |
+| docker-compose.prod.yml sem nginx container | ✅ Maio 2026 | Remove nginx do compose; adiciona `127.0.0.1:8020` e `127.0.0.1:8521` — nginx do HOST processa TLS/proxy |
+| nginx host config no repo | ✅ Maio 2026 | `nginx/host-nginx-orbis.tax.conf` gerenciado pelo repo — proxy para localhost:8020/8521; `nginx/nginx.conf` marcado LEGADO |
+| redeploy.sh pre-flight + post-deploy | ✅ Maio 2026 | Pre-flight: .env.prod existente, vars críticas presentes, nginx ativo no host, nenhum container em 80/443. Post-deploy: containers running, API health, SSL cert, acesso externo |
+| AGENTS.md + CLAUDE.md — índice de skills completo | ✅ Maio 2026 | 4 novos skills adicionados ao índice: new-test, new-endpoint, review-security, debug-regression. CLAUDE.md v3.1: seção ÍNDICE DE SKILLS E HOOKS adicionada |
+| Landing page — plano Pro "Em breve" | ✅ Maio 2026 | Preço R$990/mês removido; plano Pro mostra "Em breve" com features listadas; descrição de retrieval expandida para incluir toda a base de atos normativos indexados |
+| pdf_generator.py — tenant_nome sem fallback | ✅ Maio 2026 | `tenant_nome` não usa mais "Orbis.tax" como fallback — usa string vazia; PDF exibe apenas o nome real do tenant cadastrado |
 
 ---
 

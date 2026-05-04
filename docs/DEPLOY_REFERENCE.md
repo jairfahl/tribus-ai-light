@@ -15,8 +15,9 @@
 
 ## Stack de Produção
 
-- `docker-compose.prod.yml` + nginx reverse proxy (portas 80 + 443)
-- 4 serviços: `db`, `api`, `ui`, `nginx`
+- `docker-compose.prod.yml` + nginx do HOST (`nginx/host-nginx-orbis.tax.conf`) como reverse proxy
+- 3 serviços Docker: `db`, `api`, `ui` (nginx é processo do host, não container)
+- Portas Docker: `127.0.0.1:8020` (api) e `127.0.0.1:8521` (ui) — somente localhost
 - Admin padrão: `admin@orbis.tax` / `Admin2026`
 
 ---
@@ -49,11 +50,12 @@ docker exec tribus-ai-api env | grep ASAAS
 
 | Armadilha | Causa | Solução |
 |-----------|-------|---------|
+| `docker compose up` sem `-f` no VPS | `docker-compose.yml` é guard file — exibe instruções e falha imediatamente | Usar `bash redeploy.sh` (único comando válido em prod) |
 | `docker compose restart` não aplica nova env var | `restart` não relê `.env.prod` | Usar `up -d --force-recreate <serviço>` |
 | `ASAAS_API_KEY` com `$` no .env.prod | Docker compose interpreta `$` como variável de shell | Usar `$$` no lugar de `$` |
 | `ASAAS_BASE_URL` sandbox com chave de produção | Chave `$aact_prod_...` não autentica em `sandbox.asaas.com` → 401 → 500 para o usuário | `ASAAS_BASE_URL=https://api.asaas.com/v3` |
 | `LOCKFILE_MODE=ENFORCE` | Valor inválido — causa startup error | Usar `WARN` ou `BLOCK` |
-| Arquivos não commitados não chegam ao VPS | `redeploy.sh` faz `git pull` | `git status` + commit antes de push |
+| Arquivos não commitados não chegam ao VPS | `redeploy.sh` faz `git pull` | `git status` + `git log origin/main..HEAD` + push antes de rodar `redeploy.sh` |
 
 ---
 

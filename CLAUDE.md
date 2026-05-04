@@ -1,5 +1,5 @@
 # Orbis.tax — Instruções para Claude Code
-**Versão:** 3.0 | **Atualizado em:** Abril 2026
+**Versão:** 3.1 | **Atualizado em:** Maio 2026
 
 > Lido automaticamente pelo Claude Code a cada sessão. Não remover.
 
@@ -120,10 +120,41 @@ Pipeline: `PTF → Adaptive → SPD → Retrieve → CRAG → [MQ|SB|HyDE] → Q
 | **UX Sprint — tooltip métodos P1: redesign dark (bg-slate-900), color-coded, hierarquia visual** | ✅ Maio 2026 |
 | **UX Sprint — atalho Cmd/Ctrl+Enter cross-platform em /analisar e /consultar** | ✅ Maio 2026 |
 | **UX Sprint — subtítulo /base-conhecimento: inclui Portarias, Decretos e Leis** | ✅ Maio 2026 |
+| **Infra hardening — guard file + host nginx + redeploy pre-flight** | ✅ Maio 2026 |
+| **Skills index completo — 10 skills em AGENTS.md + CLAUDE.md** | ✅ Maio 2026 |
+| **Landing page — plano Pro "Em breve" + pdf_generator tenant_nome sem fallback** | ✅ Maio 2026 |
 
 - **Suite de testes:** 786 passando (762 originais + 24 novos test_prompt_sanitizer), ~10 falhas conhecidas pré-existentes (referência 2026-04-30)
 - **Linters AST:** `tests/linters/` — 12 testes: embedding lock, P4 guard, citation contract, PTF
 - **Última migration:** `134_rls_api_usage.sql` → próxima: `135_...`
+
+---
+
+## ÍNDICE DE SKILLS E HOOKS
+
+### Skills Disponíveis (`/skills/`)
+
+| Skill | Quando usar |
+|-------|-------------|
+| `new-feature.md` | Qualquer feature nova |
+| `new-migration.md` | ALTER TABLE / CREATE TABLE |
+| `new-endpoint.md` | Rota nova em `src/api/main.py` |
+| `new-test.md` | Qualquer módulo Python novo |
+| `pre-deploy.md` | Antes de git push para produção |
+| `diagnose-bug.md` | Bug em produção |
+| `debug-regression.md` | Teste que quebrou |
+| `review-security.md` | Revisão de segurança pré-deploy |
+| `rag-pipeline.md` | Alterar pipeline de retrieval |
+| `protocol-step.md` | Alterar protocolo P1→P6 |
+
+### Hooks Ativos (`.claude/settings.json`)
+
+| Evento | O que enforça |
+|--------|---------------|
+| PreToolUse (Write/Edit) | Bloqueia imports de pacotes proibidos (langchain, supabase, etc.) |
+| PostToolUse (Write/Edit) | Rejeita `style={{ color: ... }}` em arquivos TSX/JSX |
+| PostToolUse (Write/Edit) | Rejeita `useSearchParams` sem `<Suspense>` em TSX/JSX |
+| Stop | Avisa se suite de testes tem regressão acima do baseline |
 
 ---
 
@@ -154,6 +185,9 @@ bash scripts/quality_scorecard.sh
 
 ```bash
 ls migrations/ | sort | tail -5   # Última: 134 → próxima: 135
+# Dev local:
+docker compose -f docker-compose.dev.yml exec -i tribus-ai-db psql -U taxmind -d taxmind_db < migrations/NNN_descricao.sql
+# Atalho (container já rodando):
 docker exec -i tribus-ai-db psql -U taxmind -d taxmind_db < migrations/NNN_descricao.sql
 ```
 

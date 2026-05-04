@@ -80,3 +80,7 @@ ls /Users/jairfahl/Downloads/orbis.tax/TASKS_*.md
 | Diagnóstico de bugs | `skills/diagnose-bug.md` |
 | Modificar pipeline RAG | `skills/rag-pipeline.md` |
 | Alterar protocolo P1→P6 | `skills/protocol-step.md` |
+| Novo teste unitário | `skills/new-test.md` |
+| Novo endpoint FastAPI | `skills/new-endpoint.md` |
+| Revisão de segurança | `skills/review-security.md` |
+| Debug de regressão | `skills/debug-regression.md` |

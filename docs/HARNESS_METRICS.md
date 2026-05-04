@@ -17,10 +17,10 @@
 
 | Dimensão | Status |
 |----------|--------|
-| AGENTS.md criado | ✅ 82 linhas |
+| AGENTS.md criado | ✅ 86 linhas (4 skills adicionados ao índice) |
 | docs/ criado (10 arquivos) | ✅ DOMAIN_FISCAL, RAG_ARCHITECTURE, CITATION_CONTRACT, PROTOCOL_P1_P6, QUALITY_SCORECARD, DATA_BOUNDARY, SCHEMA_REFERENCE, DEPLOY_REFERENCE, FEEDBACK_LOOP, HARNESS_METRICS |
-| CLAUDE.md reduzido | ✅ < 200 linhas |
-| skills/ criado (6 arquivos) | ✅ new-feature, new-migration, pre-deploy, diagnose-bug, rag-pipeline, protocol-step |
+| CLAUDE.md v3.1 | ✅ ~215 linhas (seção ÍNDICE DE SKILLS E HOOKS adicionada) |
+| skills/ criado (10 arquivos) | ✅ new-feature, new-migration, pre-deploy, diagnose-bug, rag-pipeline, protocol-step, new-test, new-endpoint, review-security, debug-regression |
 | pyproject.toml (ruff config) | ✅ |
 | tests/linters/ (4 linters) | ✅ embedding lock, P4 guard, citation contract, PTF enforcement |
 | scripts/quality_scorecard.sh | ✅ 5 dimensões |
